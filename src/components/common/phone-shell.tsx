@@ -3,7 +3,6 @@
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { ReactNode, useEffect, useState } from "react";
-import StatusBar from "./status-bar";
 
 export default function PhoneShell({
   children,
@@ -24,11 +23,9 @@ export default function PhoneShell({
       style={{
         minHeight: "100dvh",
         width: "100%",
-        background: "var(--page)",
+        background: "var(--phone-bg)",
         display: "flex",
-        alignItems: "center",
         justifyContent: "center",
-        padding: 24,
         fontFamily: "var(--font-jakarta), sans-serif",
       }}
     >
@@ -36,22 +33,17 @@ export default function PhoneShell({
         className="pk-phone"
         style={{
           position: "relative",
-          width: 390,
-          height: 844,
-          maxWidth: "100%",
-          maxHeight: "100dvh",
-          borderRadius: 46,
+          width: "100%",
+          maxWidth: 480,
+          minHeight: "100dvh",
           background: "var(--phone-bg)",
-          boxShadow:
-            "0 0 0 11px var(--bezel1), 0 0 0 13px var(--bezel2), 0 40px 90px -20px rgba(0,0,0,.8), 0 0 120px -30px rgba(201,251,60,.25)",
           overflow: "hidden",
         }}
       >
-        <StatusBar />
         <div
           style={{
             position: "absolute",
-            top: 50,
+            top: "env(safe-area-inset-top, 0px)",
             left: 0,
             right: 0,
             bottom: 0,
