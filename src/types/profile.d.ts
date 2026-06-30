@@ -7,7 +7,8 @@ export type Goal =
   | "naik_massa"
   | "toning"
   | "strength"
-  | "kebugaran_umum";
+  | "kebugaran_umum"
+  | "kesuburan";
 
 export type ExperienceLevel = "pemula" | "menengah" | "mahir";
 

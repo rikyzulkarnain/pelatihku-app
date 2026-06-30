@@ -35,6 +35,7 @@ export async function generateAndCreateProgram(): Promise<{ error?: string }> {
   const plan = generateProgram(
     {
       goal: fitness.goal,
+      gender: fitness.gender ?? "rahasia",
       experience_level: fitness.experience_level ?? "pemula",
       training_frequency: fitness.training_frequency,
       equipment: fitness.equipment,

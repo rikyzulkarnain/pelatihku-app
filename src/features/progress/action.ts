@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getFitnessProfile, getProfile } from "@/features/profile/action";
 import { BodyweightLog } from "@/types/nutrition";
 import {
   format,
@@ -11,13 +12,37 @@ import {
 import { revalidatePath } from "next/cache";
 
 export type ProgressData = {
+  name: string;
+  goal: string | null;
+  experienceLevel: string | null;
   totalSessions: number;
   longestStreak: number;
+  currentStreak: number;
+  thisWeekSessions: number;
+  totalVolume: number;
+  avgVolume: number;
   latestWeight: number | null;
   weightDelta: number | null;
+  heightCm: number | null;
+  age: number | null;
+  bmi: number | null;
+  calorieTarget: number | null;
+  proteinTarget: number | null;
   weightSeries: { label: string; weight: number }[];
   volumeSeries: { label: string; volume: number }[];
 };
+
+function currentStreakFrom(dates: Date[]): number {
+  const dateSet = new Set(dates.map((d) => d.toDateString()));
+  let streak = 0;
+  const cursor = new Date();
+  if (!dateSet.has(cursor.toDateString())) cursor.setDate(cursor.getDate() - 1);
+  while (dateSet.has(cursor.toDateString())) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
 
 function longestStreakFrom(dates: Date[]): number {
   if (dates.length === 0) return 0;
@@ -46,30 +71,45 @@ export async function getProgressData(): Promise<ProgressData> {
   } = await supabase.auth.getUser();
 
   const empty: ProgressData = {
+    name: "Atlet",
+    goal: null,
+    experienceLevel: null,
     totalSessions: 0,
     longestStreak: 0,
+    currentStreak: 0,
+    thisWeekSessions: 0,
+    totalVolume: 0,
+    avgVolume: 0,
     latestWeight: null,
     weightDelta: null,
+    heightCm: null,
+    age: null,
+    bmi: null,
+    calorieTarget: null,
+    proteinTarget: null,
     weightSeries: [],
     volumeSeries: [],
   };
   if (!user) return empty;
 
-  const [{ data: sessions }, { data: weights }] = await Promise.all([
-    supabase
-      .from("workout_sessions")
-      .select("completed_at, total_volume")
-      .eq("user_id", user.id)
-      .eq("status", "completed")
-      .order("completed_at", { ascending: true }),
-    supabase
-      .from("bodyweight_logs")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("log_date", { ascending: true })
-      .limit(20)
-      .returns<BodyweightLog[]>(),
-  ]);
+  const [{ data: sessions }, { data: weights }, profile, fitness] =
+    await Promise.all([
+      supabase
+        .from("workout_sessions")
+        .select("completed_at, total_volume")
+        .eq("user_id", user.id)
+        .eq("status", "completed")
+        .order("completed_at", { ascending: true }),
+      supabase
+        .from("bodyweight_logs")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("log_date", { ascending: true })
+        .limit(20)
+        .returns<BodyweightLog[]>(),
+      getProfile(),
+      getFitnessProfile(),
+    ]);
 
   const completed = sessions ?? [];
   const completedDates = completed
@@ -103,19 +143,54 @@ export async function getProgressData(): Promise<ProgressData> {
     weight: Number(w.weight_kg),
   }));
 
-  const latestWeight = weightSeries.length
-    ? weightSeries[weightSeries.length - 1].weight
-    : null;
+  const latestWeight =
+    fitness?.weight_kg ??
+    (weightSeries.length ? weightSeries[weightSeries.length - 1].weight : null);
   const weightDelta =
     weightSeries.length >= 2
-      ? Math.round((latestWeight! - weightSeries[0].weight) * 10) / 10
+      ? Math.round(
+          (weightSeries[weightSeries.length - 1].weight -
+            weightSeries[0].weight) *
+            10,
+        ) / 10
+      : null;
+
+  const totalVolume = Math.round(
+    completed.reduce((acc, s) => acc + Number(s.total_volume ?? 0), 0),
+  );
+  const avgVolume = completed.length
+    ? Math.round(totalVolume / completed.length)
+    : 0;
+
+  // Sessions completed during the current ISO week.
+  const thisWeekStart = startOfISOWeek(new Date());
+  const thisWeekSessions = completedDates.filter(
+    (d) => d >= thisWeekStart,
+  ).length;
+
+  const heightCm = fitness?.height_cm ?? null;
+  const bmi =
+    latestWeight && heightCm
+      ? Math.round((latestWeight / (heightCm / 100) ** 2) * 10) / 10
       : null;
 
   return {
+    name: profile?.name ?? "Atlet",
+    goal: fitness?.goal ?? null,
+    experienceLevel: fitness?.experience_level ?? null,
     totalSessions: completed.length,
     longestStreak: longestStreakFrom(completedDates),
+    currentStreak: currentStreakFrom(completedDates),
+    thisWeekSessions,
+    totalVolume,
+    avgVolume,
     latestWeight,
     weightDelta,
+    heightCm,
+    age: fitness?.age ?? null,
+    bmi,
+    calorieTarget: fitness?.daily_calorie_target ?? null,
+    proteinTarget: fitness?.daily_protein_target_g ?? null,
     weightSeries,
     volumeSeries,
   };

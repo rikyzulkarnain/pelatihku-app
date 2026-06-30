@@ -16,6 +16,7 @@ editor (or `supabase db` CLI). Each file is idempotent enough to run once on a c
 | 9 | `009-match-functions.sql` | `match_knowledge` + `match_exercises` pgvector RPCs |
 | 10 | `010-seed-exercises.sql` | ~24 core exercises |
 | 11 | `011-seed-knowledge.sql` | Coach RAG knowledge entries |
+| 12 | `012-seed-fertility.sql` | Library demo videos + fertility/pelvic-floor movements (goal `kesuburan`) |
 
 ## After migrating: backfill embeddings
 

@@ -29,6 +29,7 @@ const GOAL_CALORIE_MULTIPLIER: Record<Goal, number> = {
   toning: 0.9,
   strength: 1.05,
   kebugaran_umum: 1,
+  kesuburan: 1, // maintenance — defisit agresif mengganggu hormon/kesuburan
 };
 
 const GOAL_PROTEIN_PER_KG: Record<Goal, number> = {
@@ -37,6 +38,7 @@ const GOAL_PROTEIN_PER_KG: Record<Goal, number> = {
   toning: 1.8,
   strength: 2.0,
   kebugaran_umum: 1.6,
+  kesuburan: 1.8,
 };
 
 export type NutritionResult = {

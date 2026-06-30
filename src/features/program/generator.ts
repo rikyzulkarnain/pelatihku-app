@@ -1,6 +1,7 @@
 import {
   Equipment,
   ExperienceLevel,
+  Gender,
   Goal,
 } from "@/types/profile";
 import {
@@ -14,6 +15,7 @@ import {
 
 type GeneratorInput = {
   goal: Goal;
+  gender: Gender;
   experience_level: ExperienceLevel;
   training_frequency: number;
   equipment: Equipment;
@@ -29,6 +31,9 @@ const GOAL_PARAMS: Record<
   toning: { rep_low: 10, rep_high: 15, set_low: 3, set_high: 3, cardio: false },
   strength: { rep_low: 3, rep_high: 6, set_low: 4, set_high: 6, cardio: false },
   kebugaran_umum: { rep_low: 10, rep_high: 12, set_low: 2, set_high: 3, cardio: false },
+  // Kesuburan: volume moderat (hindari overtraining yang menekan hormon),
+  // rentang rep menengah + kardio ringan-sedang untuk sirkulasi & berat sehat.
+  kesuburan: { rep_low: 8, rep_high: 12, set_low: 2, set_high: 3, cardio: true },
 };
 
 const GOAL_LABEL: Record<Goal, string> = {
@@ -37,6 +42,7 @@ const GOAL_LABEL: Record<Goal, string> = {
   toning: "Toning",
   strength: "Strength",
   kebugaran_umum: "Kebugaran Umum",
+  kesuburan: "Persiapan Kehamilan",
 };
 
 const SPLIT_LABEL: Record<SplitType, string> = {
@@ -61,14 +67,55 @@ const TEMPLATES: Record<string, MovementPattern[]> = {
   Push: ["push_horizontal", "push_vertical", "isolation_chest", "isolation_triceps"],
   Pull: ["pull_vertical", "pull_horizontal", "isolation_back", "isolation_biceps"],
   Legs: ["squat", "hinge", "isolation_legs", "calf", "core"],
+  // Fertility (pria): compound besar mendukung testosteron + kardio ringan.
+  "Kesuburan Pria Bawah": ["squat", "hinge", "isolation_legs", "core", "cardio"],
+  "Kesuburan Pria Atas": ["push_horizontal", "pull_horizontal", "push_vertical", "pull_vertical", "core"],
+  "Kesuburan Pria Full": ["squat", "push_horizontal", "pull_vertical", "hinge", "core", "cardio"],
+  // Fertility (wanita): kekuatan menyeluruh + core/pelvic & mobilitas, kardio low-impact.
+  "Kesuburan Wanita A": ["squat", "hinge", "push_horizontal", "core", "core"],
+  "Kesuburan Wanita B": ["pull_horizontal", "push_vertical", "isolation_back", "core", "cardio"],
+  "Kesuburan Wanita C": ["hinge", "isolation_legs", "push_horizontal", "core", "cardio"],
 };
 
 type DaySpec = { label: string; focus: string; templateKey: string };
 
-function buildDaySpecs(frequency: number): {
+function buildFertilityDaySpecs(
+  gender: Gender,
+  frequency: number,
+): { split: SplitType; days: DaySpec[] } {
+  const rotation: DaySpec[] =
+    gender === "cewek"
+      ? [
+          { label: "Kekuatan & Core A", focus: "Tubuh bawah, dada & pelvic/core", templateKey: "Kesuburan Wanita A" },
+          { label: "Tubuh Atas & Mobilitas", focus: "Punggung, bahu & core", templateKey: "Kesuburan Wanita B" },
+          { label: "Glutes, Core & Kardio", focus: "Glutes, kaki & kardio ringan", templateKey: "Kesuburan Wanita C" },
+        ]
+      : [
+          { label: "Kekuatan Bawah", focus: "Kaki, glutes & core", templateKey: "Kesuburan Pria Bawah" },
+          { label: "Kekuatan Atas", focus: "Dada, punggung, bahu & core", templateKey: "Kesuburan Pria Atas" },
+          { label: "Full Body & Kardio", focus: "Seluruh tubuh & kardio ringan", templateKey: "Kesuburan Pria Full" },
+        ];
+
+  const count = Math.min(Math.max(frequency, 1), 6);
+  const days: DaySpec[] = Array.from({ length: count }, (_, i) => {
+    const base = rotation[i % rotation.length];
+    const cycle = Math.floor(i / rotation.length);
+    return cycle === 0 ? base : { ...base, label: `${base.label} ${cycle + 1}` };
+  });
+  return { split: "full_body", days };
+}
+
+function buildDaySpecs(
+  goal: Goal,
+  gender: Gender,
+  frequency: number,
+): {
   split: SplitType;
   days: DaySpec[];
 } {
+  if (goal === "kesuburan") {
+    return buildFertilityDaySpecs(gender, frequency);
+  }
   if (frequency <= 3) {
     const letters = ["A", "B", "C"].slice(0, frequency);
     return {
@@ -164,7 +211,11 @@ export function generateProgram(
   exercises: Exercise[],
 ): GeneratedProgram {
   const params = GOAL_PARAMS[input.goal];
-  const { split, days: daySpecs } = buildDaySpecs(input.training_frequency);
+  const { split, days: daySpecs } = buildDaySpecs(
+    input.goal,
+    input.gender,
+    input.training_frequency,
+  );
   const allowed = allowedEquipment(input.equipment);
   const isBeginner = input.experience_level === "pemula";
 

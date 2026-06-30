@@ -49,6 +49,7 @@ export const GOAL_OPTIONS: { value: Goal; label: string }[] = [
   { value: "toning", label: "Bentuk & kencangkan tubuh" },
   { value: "strength", label: "Kekuatan (strength)" },
   { value: "kebugaran_umum", label: "Kebugaran umum & sehat" },
+  { value: "kesuburan", label: "Persiapan kehamilan & hormon" },
 ];
 
 export const LEVEL_OPTIONS: { value: ExperienceLevel; label: string }[] = [

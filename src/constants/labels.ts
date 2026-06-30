@@ -28,4 +28,5 @@ export const GOAL_LABEL: Record<string, string> = {
   toning: "Toning",
   strength: "Kekuatan",
   kebugaran_umum: "Kebugaran umum",
+  kesuburan: "Persiapan kehamilan & hormon",
 };
