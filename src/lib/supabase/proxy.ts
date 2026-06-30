@@ -2,7 +2,7 @@ import { ENVIRONMENT } from "@/config/environment";
 import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_ROUTES = ["/", "/login", "/register"];
+const PUBLIC_ROUTES = ["/", "/login", "/register", "/auth/callback"];
 
 export const supabaseProxy = async (request: NextRequest) => {
   let supabaseResponse = NextResponse.next({

@@ -4,6 +4,7 @@ import PhoneShell from "@/components/common/phone-shell";
 import PkButton from "@/components/common/pk-button";
 import PkInput from "@/components/common/pk-input";
 import ScreenHeader from "@/components/common/screen-header";
+import SocialAuth from "@/components/common/social-auth";
 import { registerAction } from "@/features/auth/action";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -90,6 +91,8 @@ export default function RegisterPage() {
               Daftar & susun program
             </PkButton>
           </div>
+
+          <SocialAuth />
 
           <p
             style={{

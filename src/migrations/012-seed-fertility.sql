@@ -5,6 +5,13 @@
 --    "kesuburan" (persiapan kehamilan & hormon) program for cowok & cewek.
 -- New rows keep embedding = null; re-run embedExercises() to backfill.
 
+-- ── Allow the new "kesuburan" goal at the DB level ────────────────────
+-- 002 created fitness_profiles.goal with a CHECK that predates this goal.
+alter table public.fitness_profiles drop constraint if exists fitness_profiles_goal_check;
+alter table public.fitness_profiles add constraint fitness_profiles_goal_check
+  check (goal in
+    ('turun_lemak', 'naik_massa', 'toning', 'strength', 'kebugaran_umum', 'kesuburan'));
+
 -- ── Library demo videos ───────────────────────────────────────────────
 -- Compound lifts (barbel/dumbbell/mesin, non-punggung) -> YouTube playlist.
 update public.exercises
