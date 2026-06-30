@@ -80,7 +80,7 @@ export default function CoachView({ init }: { init: CoachInit }) {
   }
 
   return (
-    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column" }}>
+    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", paddingBottom: 88 }}>
       {/* header */}
       <div style={{ padding: "8px 20px 12px", borderBottom: "1px solid var(--line2)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -218,7 +218,7 @@ export default function CoachView({ init }: { init: CoachInit }) {
       )}
 
       {/* input */}
-      <div style={{ padding: "10px 16px 24px", display: "flex", gap: 9, alignItems: "flex-end" }}>
+      <div style={{ padding: "10px 16px 14px", display: "flex", gap: 9, alignItems: "flex-end" }}>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
