@@ -1,5 +1,6 @@
 "use client";
 
+import InstallButton from "@/components/common/install-button";
 import { signOutAction } from "@/features/auth/action";
 import { logBodyweight, ProgressData } from "@/features/progress/action";
 import { GOAL_LABEL, LEVEL_LABEL } from "@/constants/labels";
@@ -132,6 +133,9 @@ export default function ProgressView({ data }: { data: ProgressData }) {
           {loggingOut ? "Keluar…" : "Keluar"}
         </button>
       </div>
+
+      {/* install PWA */}
+      <InstallButton />
 
       {/* support mimin */}
       <div style={{ marginTop: 14, borderRadius: 20, padding: 18, background: "linear-gradient(140deg,rgba(201,251,60,.12),rgba(201,251,60,.04))", border: "1px solid rgba(201,251,60,.28)" }}>
