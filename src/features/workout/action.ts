@@ -76,13 +76,21 @@ export async function getSessionData(
 
   if (!session?.program_day_id) return null;
 
-  const { data: day } = await supabase
-    .from("program_days")
-    .select(
-      "label, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, notes, exercise:exercises(*))",
-    )
-    .eq("id", session.program_day_id)
-    .single();
+  // Ambil detail hari + set yang sudah tercatat di sesi ini secara paralel.
+  const [{ data: day }, { data: currentSets }] = await Promise.all([
+    supabase
+      .from("program_days")
+      .select(
+        "label, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, notes, exercise:exercises(*))",
+      )
+      .eq("id", session.program_day_id)
+      .single(),
+    supabase
+      .from("set_logs")
+      .select("exercise_id, set_index, weight_kg, reps")
+      .eq("session_id", sessionId)
+      .order("set_index", { ascending: true }),
+  ]);
 
   if (!day) return null;
 
@@ -91,32 +99,42 @@ export async function getSessionData(
       a.order_index - b.order_index,
   );
 
-  // Sets already logged in THIS session.
-  const { data: currentSets } = await supabase
-    .from("set_logs")
-    .select("exercise_id, set_index, weight_kg, reps")
-    .eq("session_id", sessionId)
-    .order("set_index", { ascending: true });
+  // Riwayat set dari sesi-sesi sebelumnya untuk SEMUA gerakan di hari ini —
+  // satu query saja (bukan per-gerakan) supaya tidak ada N+1 round-trip.
+  const exerciseIds = programExercises
+    .map((pe) => (pe.exercise as unknown as Exercise)?.id)
+    .filter(Boolean) as string[];
+
+  const priorByExercise = new Map<string, SetLog[]>();
+  if (exerciseIds.length > 0) {
+    const { data: allPrior } = await supabase
+      .from("set_logs")
+      .select("*")
+      .eq("user_id", user.id)
+      .in("exercise_id", exerciseIds)
+      .neq("session_id", sessionId)
+      .order("created_at", { ascending: false })
+      .limit(Math.max(60, exerciseIds.length * 12))
+      .returns<SetLog[]>();
+
+    // Sudah terurut created_at desc → entri pertama tiap gerakan = paling baru.
+    for (const s of allPrior ?? []) {
+      const arr = priorByExercise.get(s.exercise_id);
+      if (arr) arr.push(s);
+      else priorByExercise.set(s.exercise_id, [s]);
+    }
+  }
 
   const exercises: SessionExercise[] = [];
 
   for (const pe of programExercises) {
     const exercise = pe.exercise as unknown as Exercise;
 
-    // Most recent prior session's sets for this exercise (for overload suggestion).
-    const { data: priorSets } = await supabase
-      .from("set_logs")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("exercise_id", exercise.id)
-      .neq("session_id", sessionId)
-      .order("created_at", { ascending: false })
-      .limit(8)
-      .returns<SetLog[]>();
-
+    // Set dari sesi terakhir untuk gerakan ini (untuk saran overload).
+    const priorSets = priorByExercise.get(exercise.id) ?? [];
     let lastSession: SetLog[] = [];
     let lastLabel = "belum ada data";
-    if (priorSets && priorSets.length > 0) {
+    if (priorSets.length > 0) {
       const lastSessionId = priorSets[0].session_id;
       lastSession = priorSets.filter((s) => s.session_id === lastSessionId);
       const top = Math.max(...lastSession.map((s) => s.weight_kg));

@@ -8,10 +8,18 @@ import {
   SUGGESTED_PROMPTS,
 } from "@/constants/coach-constant";
 import { transcribeAudio } from "@/features/ai/transcribe";
-import { CoachInit, createConversation, saveTurn } from "@/features/coach/action";
+import {
+  CoachInit,
+  ConversationSummary,
+  createConversation,
+  getConversation,
+  listConversations,
+  saveTurn,
+} from "@/features/coach/action";
 import { handleCoachStreaming } from "@/features/coach/chat";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { Conversation } from "@/types/ai";
+import { format } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { toast } from "sonner";
@@ -24,6 +32,8 @@ export default function CoachView({ init }: { init: CoachInit }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [conversations, setConversations] = useState<ConversationSummary[] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { recording, toggle: toggleVoice } = useAudioRecorder({
@@ -57,6 +67,29 @@ export default function CoachView({ init }: { init: CoachInit }) {
     setConversationId(res.conversationId);
     setMessages([]);
     setInput("");
+  }
+
+  async function openHistory() {
+    if (busy || transcribing) return;
+    setHistoryOpen(true);
+    setConversations(null); // tampilkan loading
+    setConversations(await listConversations());
+  }
+
+  async function selectConversation(id: string) {
+    if (id === conversationId) {
+      setHistoryOpen(false);
+      return;
+    }
+    const res = await getConversation(id);
+    if (!res) {
+      toast.error("Gagal memuat percakapan.");
+      return;
+    }
+    setConversationId(res.conversationId);
+    setMessages(res.messages);
+    setInput("");
+    setHistoryOpen(false);
   }
 
   useEffect(() => {
@@ -152,6 +185,32 @@ export default function CoachView({ init }: { init: CoachInit }) {
               ● tahu profil & program kamu
             </div>
           </div>
+          {/* lihat percakapan sebelumnya */}
+          <button
+            onClick={openHistory}
+            disabled={busy || transcribing}
+            aria-label="Riwayat chat"
+            title="Riwayat chat"
+            style={{
+              width: 38,
+              height: 38,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 12,
+              flex: "none",
+              background: "var(--surface)",
+              border: "1px solid var(--line2)",
+              color: "var(--ink2)",
+              opacity: busy || transcribing ? 0.5 : 1,
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 3v5h5" />
+              <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+              <path d="M12 7v5l4 2" />
+            </svg>
+          </button>
           {/* mulai percakapan baru biar topik tidak menumpuk */}
           <button
             onClick={newChat}
@@ -397,6 +456,118 @@ export default function CoachView({ init }: { init: CoachInit }) {
             <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
           </svg>
         </button>
+      </div>
+
+      {historyOpen && (
+        <HistoryPanel
+          conversations={conversations}
+          activeId={conversationId}
+          onSelect={selectConversation}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function HistoryPanel({
+  conversations,
+  activeId,
+  onSelect,
+  onClose,
+}: {
+  conversations: ConversationSummary[] | null;
+  activeId: string;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 95,
+        background: "var(--scrim)",
+        backdropFilter: "blur(4px)",
+        WebkitBackdropFilter: "blur(4px)",
+        display: "flex",
+        alignItems: "flex-end",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxHeight: "72%",
+          display: "flex",
+          flexDirection: "column",
+          background: "var(--sheet)",
+          borderRadius: "28px 28px 0 0",
+          borderTop: "1px solid rgba(201,251,60,.18)",
+          animation: "pk-up .3s both",
+        }}
+      >
+        <div style={{ width: 42, height: 5, borderRadius: 5, background: "var(--raised2)", margin: "8px auto 4px" }} />
+        <div style={{ padding: "6px 22px 12px", borderBottom: "1px solid var(--line2)", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1, font: "800 16px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+            Riwayat percakapan
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Tutup"
+            style={{ width: 34, height: 34, borderRadius: 10, background: "var(--surface)", border: "1px solid var(--line2)", color: "var(--dim)", fontSize: 18, lineHeight: 1 }}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="no-scrollbar" style={{ overflowY: "auto", padding: "12px 16px 24px", display: "flex", flexDirection: "column", gap: 8 }}>
+          {conversations === null ? (
+            <div style={{ padding: "24px 0", textAlign: "center", font: "500 13px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+              Memuat…
+            </div>
+          ) : conversations.length === 0 ? (
+            <div style={{ padding: "24px 0", textAlign: "center", font: "500 13px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+              Belum ada percakapan tersimpan.
+            </div>
+          ) : (
+            conversations.map((c) => {
+              const active = c.id === activeId;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => onSelect(c.id)}
+                  style={{
+                    textAlign: "left",
+                    borderRadius: 14,
+                    padding: "12px 14px",
+                    background: active ? "rgba(201,251,60,.12)" : "var(--surface)",
+                    border: active ? "1px solid var(--acc)" : "1px solid var(--line2)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 3,
+                  }}
+                >
+                  <span
+                    style={{
+                      font: "700 14px var(--font-archivo), sans-serif",
+                      color: "var(--ink)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {c.title}
+                  </span>
+                  <span style={{ font: "500 11.5px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+                    {format(new Date(c.createdAt), "d MMM yyyy · HH:mm")}
+                    {active ? " · sedang dibuka" : ""}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );
