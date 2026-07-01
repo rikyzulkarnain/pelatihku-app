@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import QueryProvider from "@/providers/query-client";
 import { ThemeProvider } from "@/providers/theme-provider";
 import ServiceWorkerRegister from "@/components/common/service-worker-register";
+import SplashScreen from "@/components/common/splash-screen";
 import { Toaster } from "sonner";
 
 const archivo = Archivo({
@@ -59,6 +60,7 @@ export default function RootLayout({
       className={cn("h-full antialiased", archivo.variable, jakarta.variable)}
     >
       <body className="font-sans min-h-full">
+        <SplashScreen />
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
