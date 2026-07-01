@@ -1,63 +1,109 @@
 "use client";
 
-import { estimateAndLogMeal, MealItem, MealResult } from "@/features/nutrition/estimate";
-import { useVoiceInput } from "@/hooks/use-voice-input";
+import { nutritionChat, NutritionChatResult } from "@/features/nutrition/chat";
+import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 type ChatMsg = {
   role: "user" | "assistant";
   text: string;
-  items?: MealItem[];
+  totals?: NutritionChatResult["totals"];
 };
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve((reader.result as string).split(",")[1] ?? "");
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function NutritionChat({
   onClose,
-  onLogged,
+  onResult,
 }: {
   onClose: () => void;
-  onLogged: (res: MealResult) => void;
+  onResult: (res: NutritionChatResult) => void;
 }) {
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
       role: "assistant",
-      text: "Ceritakan apa yang kamu makan, aku hitung protein, karbo & lemaknya otomatis. Contoh: “nasi, ayam 1 potong, sayur bayam, dan tempe”. 🎤 atau ketik ya.",
+      text: "Ceritakan makananmu — ketik, tekan 🎤 untuk pesan suara, atau 📷 untuk foto makanan / struk. Protein, karbo & lemak dihitung otomatis. Bisa juga bilang “hapus telur dadar” atau “ubah nasi jadi 2 centong”.",
     },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const busyRef = useRef(false);
 
-  const { listening, toggle: toggleVoice } = useVoiceInput({
-    onInterim: setInput,
-    onFinal: (text) => send(text),
+  const { recording, toggle: toggleRecording } = useAudioRecorder({
+    onRecorded: (audio) => run({ audio }, "🎤 Pesan suara"),
   });
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy]);
 
-  async function send(text: string) {
-    const clean = text.trim();
-    if (!clean || busy) return;
-    setInput("");
-    setMessages((m) => [...m, { role: "user", text: clean }]);
+  async function run(
+    payload: Parameters<typeof nutritionChat>[0],
+    userLabel: string,
+  ) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
+    setMessages((m) => [...m, { role: "user", text: userLabel }]);
     try {
-      const res = await estimateAndLogMeal({ text: clean });
+      const res = await nutritionChat(payload);
       if (res.error) {
         setMessages((m) => [...m, { role: "assistant", text: `⚠️ ${res.error}` }]);
       } else {
         setMessages((m) => [
           ...m,
-          { role: "assistant", text: res.reply ?? "Tercatat ✅", items: res.items },
+          {
+            role: "assistant",
+            text: res.reply ?? "Tercatat ✅",
+            totals: res.changed ? res.totals : undefined,
+          },
         ]);
-        if (res.items?.length) onLogged(res);
+        onResult(res);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Terjadi kesalahan.";
       setMessages((m) => [...m, { role: "assistant", text: `⚠️ ${msg}` }]);
     } finally {
+      busyRef.current = false;
       setBusy(false);
+    }
+  }
+
+  function sendText() {
+    const clean = input.trim();
+    if (!clean || busy) return;
+    setInput("");
+    run({ text: clean }, clean);
+  }
+
+  async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // izinkan pilih file yang sama lagi
+    if (!file || busy) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Pilih file gambar ya.");
+      return;
+    }
+    const caption = input.trim();
+    setInput("");
+    try {
+      const base64 = await fileToBase64(file);
+      run(
+        { image: { mimeType: file.type, base64 }, text: caption || undefined },
+        caption ? `📷 ${caption}` : "📷 Foto makanan",
+      );
+    } catch {
+      toast.error("Gagal membaca foto.");
     }
   }
 
@@ -111,7 +157,7 @@ export default function NutritionChat({
               Catat makanan
             </div>
             <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--acc)" }}>
-              ● chat atau suara — makro dihitung otomatis
+              ● chat · suara · foto — makro dihitung otomatis
             </div>
           </div>
           <button
@@ -145,33 +191,19 @@ export default function NutritionChat({
                   }}
                 >
                   <div>{m.text}</div>
-                  {m.items && m.items.length > 0 && (
-                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-                      {m.items.map((it, j) => (
-                        <div
-                          key={j}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: 8,
-                            padding: "8px 10px",
-                            borderRadius: 10,
-                            background: "var(--raised)",
-                          }}
-                        >
-                          <div>
-                            <div style={{ font: "700 12.5px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
-                              {it.name}
-                            </div>
-                            <div style={{ font: "500 11px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
-                              {it.portion} · {Math.round(it.calories)} kkal
-                            </div>
-                          </div>
-                          <div style={{ font: "600 11px var(--font-jakarta), sans-serif", color: "var(--dim)", textAlign: "right", whiteSpace: "nowrap" }}>
-                            <span style={{ color: "var(--acc)", fontWeight: 800 }}>{it.protein_g}p</span> · {it.carb_g}k · {it.fat_g}l
-                          </div>
-                        </div>
-                      ))}
+                  {m.totals && (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr 1fr 1fr",
+                        gap: 6,
+                      }}
+                    >
+                      <TotalChip label="kkal" value={Math.round(m.totals.calories)} color="var(--acc)" />
+                      <TotalChip label="protein" value={`${m.totals.protein_g}g`} color="var(--acc)" />
+                      <TotalChip label="karbo" value={`${m.totals.carb_g}g`} color="#7cc4ff" />
+                      <TotalChip label="lemak" value={`${m.totals.fat_g}g`} color="#ff9a5c" />
                     </div>
                   )}
                 </div>
@@ -189,36 +221,78 @@ export default function NutritionChat({
         </div>
 
         {/* input */}
-        <div style={{ padding: "10px 16px 18px", display: "flex", gap: 9, alignItems: "flex-end" }}>
+        <div style={{ padding: "10px 16px 18px", display: "flex", gap: 8, alignItems: "flex-end" }}>
+          {/* mic — tekan untuk rekam, jadi kotak merah saat merekam */}
           <button
-            onClick={toggleVoice}
-            aria-label={listening ? "Berhenti merekam" : "Rekam suara"}
+            onClick={toggleRecording}
+            disabled={busy}
+            aria-label={recording ? "Berhenti merekam" : "Rekam suara"}
             style={{
               width: 48,
               height: 48,
               borderRadius: 16,
               flex: "none",
-              background: listening ? "var(--lime)" : "var(--surface)",
-              border: listening ? "none" : "1px solid var(--line2)",
-              color: listening ? "#10130a" : "var(--dim)",
+              background: recording ? "#ff3b30" : "var(--surface)",
+              border: recording ? "none" : "1px solid var(--line2)",
+              color: recording ? "#fff" : "var(--dim)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              animation: listening ? "pk-pulse 1.4s ease-in-out infinite" : "none",
+              opacity: busy && !recording ? 0.5 : 1,
+              animation: recording ? "pk-pulse 1.4s ease-in-out infinite" : "none",
+            }}
+          >
+            {recording ? (
+              <span style={{ width: 16, height: 16, borderRadius: 4, background: "#fff", display: "block" }} />
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" />
+              </svg>
+            )}
+          </button>
+
+          {/* foto makanan / struk */}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            onChange={onPickImage}
+            style={{ display: "none" }}
+          />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+            aria-label="Foto makanan"
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 16,
+              flex: "none",
+              background: "var(--surface)",
+              border: "1px solid var(--line2)",
+              color: "var(--dim)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: busy ? 0.5 : 1,
             }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="9" y="2" width="6" height="12" rx="3" />
-              <path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" />
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+              <circle cx="12" cy="13" r="4" />
             </svg>
           </button>
+
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send(input)}
-            placeholder={listening ? "Mendengarkan…" : "Tulis atau ucapkan makananmu…"}
+            onKeyDown={(e) => e.key === "Enter" && sendText()}
+            placeholder={recording ? "Merekam… tekan ⏹ untuk selesai" : "Tulis makananmu…"}
+            disabled={recording}
             style={{
               flex: 1,
+              minWidth: 0,
               padding: "13px 16px",
               borderRadius: 16,
               background: "var(--surface)",
@@ -229,7 +303,7 @@ export default function NutritionChat({
             }}
           />
           <button
-            onClick={() => send(input)}
+            onClick={sendText}
             disabled={busy || !input.trim()}
             aria-label="Kirim"
             style={{
@@ -250,6 +324,23 @@ export default function NutritionChat({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TotalChip({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string | number;
+  color: string;
+}) {
+  return (
+    <div style={{ padding: "6px 4px", borderRadius: 10, background: "var(--raised)", textAlign: "center" }}>
+      <div style={{ font: "800 13px var(--font-archivo), sans-serif", color }}>{value}</div>
+      <div style={{ font: "500 9.5px var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 1 }}>{label}</div>
     </div>
   );
 }

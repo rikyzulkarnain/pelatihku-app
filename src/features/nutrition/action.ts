@@ -17,6 +17,9 @@ export type NutritionData = {
   bmi: number | null;
   bmiCategory: string;
   proteinNow: number;
+  carbNow: number;
+  fatNow: number;
+  calorieNow: number;
   logs: NutritionLog[];
 };
 
@@ -41,6 +44,9 @@ export async function getNutritionData(): Promise<NutritionData> {
     bmi: null,
     bmiCategory: "-",
     proteinNow: 0,
+    carbNow: 0,
+    fatNow: 0,
+    calorieNow: 0,
     logs: [],
   };
   if (!user) return empty;
@@ -80,9 +86,8 @@ export async function getNutritionData(): Promise<NutritionData> {
     category = bmiCategory(bmi);
   }
 
-  const proteinNow = Math.round(
-    (logs ?? []).reduce((acc, l) => acc + Number(l.protein_g ?? 0), 0),
-  );
+  const sumLog = (key: "protein_g" | "carb_g" | "fat_g" | "calories") =>
+    Math.round((logs ?? []).reduce((acc, l) => acc + Number(l[key] ?? 0), 0));
 
   return {
     calorieTarget,
@@ -93,7 +98,10 @@ export async function getNutritionData(): Promise<NutritionData> {
     goal: target?.goal ?? fitness?.goal ?? "kebugaran_umum",
     bmi,
     bmiCategory: category,
-    proteinNow,
+    proteinNow: sumLog("protein_g"),
+    carbNow: sumLog("carb_g"),
+    fatNow: sumLog("fat_g"),
+    calorieNow: sumLog("calories"),
     logs: logs ?? [],
   };
 }
