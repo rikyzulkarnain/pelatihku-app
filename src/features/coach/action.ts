@@ -62,6 +62,35 @@ export async function getOrCreateConversation(): Promise<CoachInit | null> {
   };
 }
 
+/** Mulai percakapan baru (kosong) supaya topik tidak menumpuk di satu chat. */
+export async function createConversation(): Promise<CoachInit | null> {
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("coach_persona")
+    .eq("id", user.id)
+    .single();
+
+  const persona = (profile?.coach_persona as CoachPersona) ?? "suportif";
+
+  const { data: created } = await supabase
+    .from("conversations")
+    .insert({ user_id: user.id, persona, title: "Coach" })
+    .select("id, persona")
+    .single();
+
+  if (!created) return null;
+
+  return {
+    conversationId: created.id,
+    persona: created.persona as CoachPersona,
+    messages: [],
+  };
+}
+
 export async function saveTurn(
   conversationId: string,
   userText: string,

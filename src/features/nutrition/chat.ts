@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { createAI } from "@/features/ai/instance";
+import { transcribeAudio } from "@/features/ai/transcribe";
 import {
   ALL_QUOTA_EXHAUSTED_MESSAGE,
   COACH_MODELS,
@@ -43,6 +44,8 @@ export type NutritionChatResult = {
   totals?: MacroTotals;
   /** true jika AI melakukan perubahan (tambah/ubah/hapus) pada catatan. */
   changed?: boolean;
+  /** Transkrip teks dari input suara (untuk ditampilkan sebagai pesan user). */
+  transcript?: string;
 };
 
 const round1 = (n: number) => Math.round((Number(n) || 0) * 10) / 10;
@@ -297,12 +300,25 @@ function sumTotals(logs: LoggedFood[]): MacroTotals {
  */
 export async function nutritionChat(input: {
   text?: string;
+  audio?: { mimeType: string; base64: string };
   image?: { mimeType: string; base64: string };
   model?: CoachModel;
 }): Promise<NutritionChatResult> {
   const supabase = await createClient();
   const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir. Silakan login ulang." };
+
+  // Suara: transkrip dulu jadi teks (akurat, Bahasa Indonesia) lalu diproses
+  // seperti input teks biasa. Transkripnya dikembalikan untuk ditampilkan.
+  let transcript: string | undefined;
+  let text = input.text?.trim() ?? "";
+  if (input.audio) {
+    const t = await transcribeAudio(input.audio);
+    if (t.error) return { error: t.error };
+    transcript = t.text?.trim() ?? "";
+    if (!transcript && !input.image) return { error: "Suaranya kurang jelas. Coba ulangi ya." };
+    text = [text, transcript].filter(Boolean).join(" ").trim();
+  }
 
   const logDate = format(new Date(), "yyyy-MM-dd");
   const before = await fetchToday(supabase, user.id, logDate);
@@ -312,10 +328,10 @@ export async function nutritionChat(input: {
     parts.push({
       inlineData: { mimeType: input.image.mimeType, data: input.image.base64 },
     });
-  if (input.text?.trim()) parts.push({ text: input.text.trim() });
+  if (text) parts.push({ text });
 
   if (parts.length === 0) return { error: "Ceritakan atau foto dulu makananmu ya." };
-  if (input.image && !input.text?.trim())
+  if (input.image && !text)
     parts.push({
       text: "(Foto) Identifikasi makanan pada gambar ini (bisa berupa makanan atau struk) lalu catat.",
     });
@@ -369,5 +385,6 @@ export async function nutritionChat(input: {
     logs,
     totals,
     changed,
+    transcript,
   };
 }
