@@ -7,25 +7,57 @@ import {
   DEFAULT_COACH_MODEL,
   SUGGESTED_PROMPTS,
 } from "@/constants/coach-constant";
-import { CoachInit, saveTurn } from "@/features/coach/action";
+import { transcribeAudio } from "@/features/ai/transcribe";
+import { CoachInit, createConversation, saveTurn } from "@/features/coach/action";
 import { handleCoachStreaming } from "@/features/coach/chat";
-import { useVoiceInput } from "@/hooks/use-voice-input";
+import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { Conversation } from "@/types/ai";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
+import { toast } from "sonner";
 
 export default function CoachView({ init }: { init: CoachInit }) {
   const [messages, setMessages] = useState<Conversation[]>(init.messages);
+  const [conversationId, setConversationId] = useState(init.conversationId);
   const [model, setModel] = useState<CoachModel>(DEFAULT_COACH_MODEL);
   const [thinking, setThinking] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { listening, toggle: toggleVoice } = useVoiceInput({
-    onInterim: setInput,
-    onFinal: (text) => send(text),
+  const { recording, toggle: toggleVoice } = useAudioRecorder({
+    onRecorded: async (audio) => {
+      setTranscribing(true);
+      try {
+        const t = await transcribeAudio(audio);
+        if (t.error) {
+          toast.error(t.error);
+          return;
+        }
+        const text = t.text?.trim();
+        if (!text) {
+          toast.error("Suaranya kurang jelas. Coba lagi ya.");
+          return;
+        }
+        send(text);
+      } finally {
+        setTranscribing(false);
+      }
+    },
   });
+
+  async function newChat() {
+    if (busy || transcribing) return;
+    const res = await createConversation();
+    if (!res) {
+      toast.error("Gagal memulai chat baru.");
+      return;
+    }
+    setConversationId(res.conversationId);
+    setMessages([]);
+    setInput("");
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -76,7 +108,7 @@ export default function CoachView({ init }: { init: CoachInit }) {
         answer = "Maaf, aku belum bisa menjawab itu. Coba tanya hal lain seputar latihanmu ya.";
         render();
       }
-      await saveTurn(init.conversationId, clean, answer);
+      await saveTurn(conversationId, clean, answer);
     } catch (e) {
       const msg =
         e instanceof Error ? e.message : "Terjadi kesalahan pada AI Coach.";
@@ -120,6 +152,31 @@ export default function CoachView({ init }: { init: CoachInit }) {
               ● tahu profil & program kamu
             </div>
           </div>
+          {/* mulai percakapan baru biar topik tidak menumpuk */}
+          <button
+            onClick={newChat}
+            disabled={busy || transcribing || messages.length === 0}
+            aria-label="Chat baru"
+            title="Chat baru"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 12px",
+              borderRadius: 12,
+              flex: "none",
+              background: "var(--surface)",
+              border: "1px solid var(--line2)",
+              color: "var(--ink2)",
+              font: "800 12.5px var(--font-archivo), sans-serif",
+              opacity: busy || transcribing || messages.length === 0 ? 0.5 : 1,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Baru
+          </button>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
           {/* pilih model Gemini free (fallback otomatis kalau kuota habis) */}
@@ -224,7 +281,8 @@ export default function CoachView({ init }: { init: CoachInit }) {
           );
         })}
 
-        {busy && !messages[messages.length - 1]?.parts.some((p) => p.text) && (
+        {(transcribing ||
+          (busy && !messages[messages.length - 1]?.parts.some((p) => p.text))) && (
           <div style={{ alignSelf: "flex-start", display: "flex", gap: 5, padding: "14px 16px", borderRadius: "16px 16px 16px 4px", background: "var(--surface)", border: "1px solid var(--line2)" }}>
             {[0, 0.2, 0.4].map((d) => (
               <span
@@ -270,24 +328,24 @@ export default function CoachView({ init }: { init: CoachInit }) {
       <div style={{ padding: "10px 16px 14px", display: "flex", gap: 9, alignItems: "flex-end" }}>
         <button
           onClick={toggleVoice}
-          disabled={busy}
-          aria-label={listening ? "Berhenti & kirim" : "Tanya pakai suara"}
+          disabled={busy || transcribing}
+          aria-label={recording ? "Berhenti & kirim" : "Tanya pakai suara"}
           style={{
             width: 48,
             height: 48,
             borderRadius: 16,
             flex: "none",
-            background: listening ? "#ff3b30" : "var(--surface)",
-            border: listening ? "none" : "1px solid var(--line2)",
-            color: listening ? "#fff" : "var(--dim)",
+            background: recording ? "#ff3b30" : "var(--surface)",
+            border: recording ? "none" : "1px solid var(--line2)",
+            color: recording ? "#fff" : "var(--dim)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            opacity: busy && !listening ? 0.5 : 1,
-            animation: listening ? "pk-pulse 1.4s ease-in-out infinite" : "none",
+            opacity: (busy || transcribing) && !recording ? 0.5 : 1,
+            animation: recording ? "pk-pulse 1.4s ease-in-out infinite" : "none",
           }}
         >
-          {listening ? (
+          {recording ? (
             <span style={{ width: 16, height: 16, borderRadius: 4, background: "#fff", display: "block" }} />
           ) : (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -300,7 +358,14 @@ export default function CoachView({ init }: { init: CoachInit }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send(input)}
-          placeholder={listening ? "Mendengarkan…" : "Tulis pertanyaanmu…"}
+          placeholder={
+            recording
+              ? "Merekam… tekan ⏹ untuk kirim"
+              : transcribing
+                ? "Menyalin suara…"
+                : "Tulis pertanyaanmu…"
+          }
+          disabled={recording}
           style={{
             flex: 1,
             padding: "13px 16px",

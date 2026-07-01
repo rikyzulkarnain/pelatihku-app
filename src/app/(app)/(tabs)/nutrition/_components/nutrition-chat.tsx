@@ -7,7 +7,7 @@ import {
   DEFAULT_COACH_MODEL,
 } from "@/constants/coach-constant";
 import { nutritionChat, NutritionChatResult } from "@/features/nutrition/chat";
-import { useVoiceInput } from "@/hooks/use-voice-input";
+import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +16,23 @@ type ChatMsg = {
   text: string;
   totals?: NutritionChatResult["totals"];
 };
+
+const VOICE_PLACEHOLDER = "🎤 …";
+
+// Ganti gelembung placeholder suara ("🎤 …") dengan transkrip aslinya.
+function replaceVoicePlaceholder(msgs: ChatMsg[], replacement?: string): ChatMsg[] {
+  const next = [...msgs];
+  for (let i = next.length - 1; i >= 0; i--) {
+    if (next[i].role === "user" && next[i].text === VOICE_PLACEHOLDER) {
+      next[i] = {
+        ...next[i],
+        text: replacement?.trim() ? replacement.trim() : "🎤 Pesan suara",
+      };
+      break;
+    }
+  }
+  return next;
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -46,9 +63,8 @@ export default function NutritionChat({
   const fileRef = useRef<HTMLInputElement>(null);
   const busyRef = useRef(false);
 
-  const { listening, toggle: toggleVoice } = useVoiceInput({
-    onInterim: setInput,
-    onFinal: (text) => sendText(text),
+  const { recording, toggle: toggleVoice } = useAudioRecorder({
+    onRecorded: (audio) => run({ audio }, VOICE_PLACEHOLDER),
   });
 
   useEffect(() => {
@@ -66,21 +82,30 @@ export default function NutritionChat({
     try {
       const res = await nutritionChat({ ...payload, model });
       if (res.error) {
-        setMessages((m) => [...m, { role: "assistant", text: `⚠️ ${res.error}` }]);
+        setMessages((m) => {
+          const next = replaceVoicePlaceholder(m);
+          next.push({ role: "assistant", text: `⚠️ ${res.error}` });
+          return next;
+        });
       } else {
-        setMessages((m) => [
-          ...m,
-          {
+        setMessages((m) => {
+          const next = replaceVoicePlaceholder(m, res.transcript);
+          next.push({
             role: "assistant",
             text: res.reply ?? "Tercatat ✅",
             totals: res.changed ? res.totals : undefined,
-          },
-        ]);
+          });
+          return next;
+        });
         onResult(res);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Terjadi kesalahan.";
-      setMessages((m) => [...m, { role: "assistant", text: `⚠️ ${msg}` }]);
+      setMessages((m) => {
+        const next = replaceVoicePlaceholder(m);
+        next.push({ role: "assistant", text: `⚠️ ${msg}` });
+        return next;
+      });
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -260,23 +285,23 @@ export default function NutritionChat({
           <button
             onClick={toggleVoice}
             disabled={busy}
-            aria-label={listening ? "Berhenti & kirim" : "Bicara"}
+            aria-label={recording ? "Berhenti & kirim" : "Bicara"}
             style={{
               width: 48,
               height: 48,
               borderRadius: 16,
               flex: "none",
-              background: listening ? "#ff3b30" : "var(--surface)",
-              border: listening ? "none" : "1px solid var(--line2)",
-              color: listening ? "#fff" : "var(--dim)",
+              background: recording ? "#ff3b30" : "var(--surface)",
+              border: recording ? "none" : "1px solid var(--line2)",
+              color: recording ? "#fff" : "var(--dim)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              opacity: busy && !listening ? 0.5 : 1,
-              animation: listening ? "pk-pulse 1.4s ease-in-out infinite" : "none",
+              opacity: busy && !recording ? 0.5 : 1,
+              animation: recording ? "pk-pulse 1.4s ease-in-out infinite" : "none",
             }}
           >
-            {listening ? (
+            {recording ? (
               <span style={{ width: 16, height: 16, borderRadius: 4, background: "#fff", display: "block" }} />
             ) : (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -322,7 +347,8 @@ export default function NutritionChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendText()}
-            placeholder={listening ? "Mendengarkan… tekan ⏹ untuk kirim" : "Tulis makananmu…"}
+            placeholder={recording ? "Merekam… tekan ⏹ untuk kirim" : "Tulis makananmu…"}
+            disabled={recording}
             style={{
               flex: 1,
               minWidth: 0,

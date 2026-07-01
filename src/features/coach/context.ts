@@ -13,6 +13,10 @@ export type CoachContext = {
   recentSessions: { date: string; label: string; volume: number }[];
   streak: number;
   proteinToday: number;
+  carbToday: number;
+  fatToday: number;
+  caloriesToday: number;
+  foodsToday: string[];
 };
 
 export async function getCoachContext(): Promise<CoachContext> {
@@ -29,6 +33,10 @@ export async function getCoachContext(): Promise<CoachContext> {
     recentSessions: [],
     streak: 0,
     proteinToday: 0,
+    carbToday: 0,
+    fatToday: 0,
+    caloriesToday: 0,
+    foodsToday: [],
   };
   if (!user) return base;
 
@@ -114,12 +122,17 @@ export async function getCoachContext(): Promise<CoachContext> {
 
   const { data: foods } = await supabase
     .from("nutrition_logs")
-    .select("protein_g")
+    .select("food_name, protein_g, carb_g, fat_g, calories")
     .eq("user_id", user.id)
     .eq("log_date", format(new Date(), "yyyy-MM-dd"));
-  const proteinToday = Math.round(
-    (foods ?? []).reduce((acc, f) => acc + Number(f.protein_g ?? 0), 0),
-  );
+  const rows = foods ?? [];
+  const sumFood = (key: "protein_g" | "carb_g" | "fat_g" | "calories") =>
+    Math.round(rows.reduce((acc, f) => acc + Number(f[key] ?? 0), 0));
+  const proteinToday = sumFood("protein_g");
+  const carbToday = sumFood("carb_g");
+  const fatToday = sumFood("fat_g");
+  const caloriesToday = sumFood("calories");
+  const foodsToday = rows.map((f) => f.food_name as string).filter(Boolean);
 
   return {
     profile,
@@ -131,5 +144,9 @@ export async function getCoachContext(): Promise<CoachContext> {
     recentSessions,
     streak,
     proteinToday,
+    carbToday,
+    fatToday,
+    caloriesToday,
+    foodsToday,
   };
 }
