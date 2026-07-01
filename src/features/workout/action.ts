@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/supabase/auth";
+import { MUSCLE_LABEL } from "@/constants/labels";
 import { Exercise } from "@/types/program";
 import { OverloadSuggestion, SetLog } from "@/types/workout";
 import { revalidatePath } from "next/cache";
@@ -58,6 +59,8 @@ export type SessionData = {
   session_id: string;
   day_label: string;
   exercises: SessionExercise[];
+  /** Peringatan recovery bila otot hari ini baru dilatih < 48 jam. */
+  rest_warning: string | null;
 };
 
 export async function getSessionData(
@@ -143,7 +146,11 @@ export async function getSessionData(
 
     const suggestion = suggestNextSet(
       lastSession,
-      { rep_low: pe.target_rep_low, rep_high: pe.target_rep_high },
+      {
+        rep_low: pe.target_rep_low,
+        rep_high: pe.target_rep_high,
+        sets: pe.target_sets,
+      },
       exercise.equipment,
     );
 
@@ -166,11 +173,69 @@ export async function getSessionData(
     });
   }
 
+  // Rambu recovery: apakah otot yang dilatih hari ini baru dilatih < 48 jam?
+  const restWarning = await computeRestWarning(
+    supabase,
+    user.id,
+    sessionId,
+    programExercises.map((pe) => (pe.exercise as unknown as Exercise)?.muscle_group),
+  );
+
   return {
     session_id: sessionId,
     day_label: day.label,
     exercises,
+    rest_warning: restWarning,
   };
+}
+
+async function computeRestWarning(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  sessionId: string,
+  rawMuscleGroups: (string | undefined)[],
+): Promise<string | null> {
+  const muscleGroups = Array.from(
+    new Set(rawMuscleGroups.filter(Boolean) as string[]),
+  );
+  if (muscleGroups.length === 0) return null;
+
+  // Semua gerakan yang menyasar otot-otot ini (bukan cuma yang di sesi ini).
+  const { data: sameMuscle } = await supabase
+    .from("exercises")
+    .select("id, muscle_group")
+    .in("muscle_group", muscleGroups)
+    .returns<{ id: string; muscle_group: string }[]>();
+
+  const idToMuscle = new Map((sameMuscle ?? []).map((e) => [e.id, e.muscle_group]));
+  if (idToMuscle.size === 0) return null;
+
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const { data: recent } = await supabase
+    .from("set_logs")
+    .select("exercise_id, created_at")
+    .eq("user_id", userId)
+    .neq("session_id", sessionId)
+    .in("exercise_id", Array.from(idToMuscle.keys()))
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false });
+
+  // Jam sejak otot terakhir dilatih (ambil yang paling baru per otot).
+  const hoursByMuscle = new Map<string, number>();
+  for (const r of recent ?? []) {
+    const muscle = idToMuscle.get(r.exercise_id);
+    if (!muscle || hoursByMuscle.has(muscle)) continue;
+    const hours =
+      (Date.now() - new Date(r.created_at as string).getTime()) / 3_600_000;
+    hoursByMuscle.set(muscle, hours);
+  }
+
+  const tired = muscleGroups.filter((m) => hoursByMuscle.has(m));
+  if (tired.length === 0) return null;
+
+  const labels = tired.map((m) => MUSCLE_LABEL[m] ?? m);
+  const minHours = Math.round(Math.min(...tired.map((m) => hoursByMuscle.get(m)!)));
+  return `Otot ${labels.join(", ")} baru dilatih ~${minHours} jam lalu. Idealnya beri jeda ~48 jam biar pulih maksimal — boleh lanjut, tapi jangan dipaksakan.`;
 }
 
 export async function logSet(input: {
