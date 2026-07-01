@@ -6,6 +6,8 @@ import { createAI } from "@/features/ai/instance";
 import {
   ALL_QUOTA_EXHAUSTED_MESSAGE,
   COACH_MODELS,
+  CoachModel,
+  DEFAULT_COACH_MODEL,
 } from "@/constants/coach-constant";
 import {
   Content,
@@ -153,10 +155,13 @@ function isQuotaError(error: unknown): boolean {
 async function callModel(
   contents: Content[],
   systemInstruction: string,
+  preferred: CoachModel,
 ): Promise<GenerateContentResponse> {
   const ai = createAI();
   let lastError: unknown;
-  for (const model of COACH_MODELS) {
+  // Model pilihan pengguna dicoba dulu, sisanya jadi fallback saat kuota habis.
+  const models = [preferred, ...COACH_MODELS.filter((m) => m !== preferred)];
+  for (const model of models) {
     try {
       return await ai.models.generateContent({
         model,
@@ -292,8 +297,8 @@ function sumTotals(logs: LoggedFood[]): MacroTotals {
  */
 export async function nutritionChat(input: {
   text?: string;
-  audio?: { mimeType: string; base64: string };
   image?: { mimeType: string; base64: string };
+  model?: CoachModel;
 }): Promise<NutritionChatResult> {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -303,10 +308,6 @@ export async function nutritionChat(input: {
   const before = await fetchToday(supabase, user.id, logDate);
 
   const parts: Part[] = [];
-  if (input.audio)
-    parts.push({
-      inlineData: { mimeType: input.audio.mimeType, data: input.audio.base64 },
-    });
   if (input.image)
     parts.push({
       inlineData: { mimeType: input.image.mimeType, data: input.image.base64 },
@@ -314,15 +315,12 @@ export async function nutritionChat(input: {
   if (input.text?.trim()) parts.push({ text: input.text.trim() });
 
   if (parts.length === 0) return { error: "Ceritakan atau foto dulu makananmu ya." };
-  if (input.audio && !input.text?.trim())
-    parts.push({
-      text: "(Pesan suara) Dengarkan audio ini dan proses makanan yang disebutkan.",
-    });
   if (input.image && !input.text?.trim())
     parts.push({
       text: "(Foto) Identifikasi makanan pada gambar ini (bisa berupa makanan atau struk) lalu catat.",
     });
 
+  const model = input.model ?? DEFAULT_COACH_MODEL;
   const systemInstruction = buildSystemInstruction(before);
   const contents: Content[] = [{ role: "user", parts }];
 
@@ -330,7 +328,7 @@ export async function nutritionChat(input: {
   let changed = false;
   try {
     for (let turn = 0; turn < 5; turn++) {
-      const response = await callModel(contents, systemInstruction);
+      const response = await callModel(contents, systemInstruction, model);
       const respParts = response.candidates?.[0]?.content?.parts ?? [];
       const functionCalls: FunctionCall[] = [];
       const modelParts: Part[] = [];

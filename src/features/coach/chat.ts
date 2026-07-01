@@ -86,9 +86,16 @@ export async function* handleCoachStreaming(
   const models = [preferred, ...COACH_MODELS.filter((m) => m !== preferred)];
 
   for (const model of models) {
-    // thinkingBudget: 0 mematikan thinking; hanya berlaku untuk model 2.5.
+    // thinkingBudget: 0 mematikan thinking; hanya berlaku untuk model 2.5/3.
+    // includeThoughts: true membuat alur berpikir ikut di-stream (parts.thought).
     const config = supportsThinking(model)
-      ? { ...baseConfig, thinkingConfig: { thinkingBudget: thinking ? -1 : 0 } }
+      ? {
+          ...baseConfig,
+          thinkingConfig: {
+            includeThoughts: thinking,
+            thinkingBudget: thinking ? -1 : 0,
+          },
+        }
       : baseConfig;
 
     let emitted = false;
@@ -99,10 +106,22 @@ export async function* handleCoachStreaming(
         config,
       });
 
-      for await (const chunk of response) {
-        if (chunk.text) {
-          emitted = true;
-          yield chunk.text;
+      if (thinking) {
+        // Pisahkan bagian "thought" (alur berpikir) dari jawaban akhir.
+        for await (const chunk of response) {
+          const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+          for (const part of parts) {
+            if (!part.text) continue;
+            emitted = true;
+            yield part.thought ? `[thought]${part.text}` : part.text;
+          }
+        }
+      } else {
+        for await (const chunk of response) {
+          if (chunk.text) {
+            emitted = true;
+            yield chunk.text;
+          }
         }
       }
       return;
