@@ -1,5 +1,5 @@
 import { getActiveProgram } from "@/features/program/action";
-import DayCard from "./day-card";
+import DayCard from "./_components/day-card";
 
 export default async function ProgramPage() {
   const program = await getActiveProgram();

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { computeNutrition } from "@/features/nutrition/calc";
 import { OnboardingAnswers } from "@/types/profile";
 import { addMonths, format } from "date-fns";
@@ -24,9 +25,7 @@ export async function completeOnboarding(
   answers: OnboardingAnswers,
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir, silakan masuk lagi." };
 
   const nutrition = computeNutrition({

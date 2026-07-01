@@ -1,5 +1,5 @@
 import { getOrCreateConversation } from "@/features/coach/action";
-import CoachView from "./coach-view";
+import CoachView from "./_components/coach-view";
 
 export default async function CoachPage() {
   const init = await getOrCreateConversation();

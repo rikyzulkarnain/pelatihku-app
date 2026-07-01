@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { Exercise } from "@/types/program";
 import { OverloadSuggestion, SetLog } from "@/types/workout";
 import { revalidatePath } from "next/cache";
@@ -11,9 +12,7 @@ export async function startOrResumeSession(
   programDayId: string,
 ): Promise<{ sessionId?: string; error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir, silakan masuk lagi." };
 
   const { data: existing } = await supabase
@@ -65,9 +64,7 @@ export async function getSessionData(
   sessionId: string,
 ): Promise<SessionData | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
   const { data: session } = await supabase
@@ -166,9 +163,7 @@ export async function logSet(input: {
   reps: number;
 }): Promise<{ error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir." };
 
   // Replace any existing log for this set slot (idempotent toggle-on).
@@ -198,9 +193,7 @@ export async function removeSet(input: {
   setIndex: number;
 }): Promise<void> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return;
   await supabase
     .from("set_logs")
@@ -215,9 +208,7 @@ export async function completeSession(
   sessionId: string,
 ): Promise<{ volume: number; streak: number; error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { volume: 0, streak: 0, error: "Sesi berakhir." };
 
   const { data: sets } = await supabase

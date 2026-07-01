@@ -1,7 +1,7 @@
 import PhoneShell from "@/components/common/phone-shell";
 import { getSessionData } from "@/features/workout/action";
 import { redirect } from "next/navigation";
-import SessionView from "./session-view";
+import SessionView from "./_components/session-view";
 
 export default async function SessionPage({
   params,

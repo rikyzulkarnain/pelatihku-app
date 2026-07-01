@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { FitnessProfile } from "@/types/profile";
 import { NutritionLog, NutritionTarget } from "@/types/nutrition";
 import { format } from "date-fns";
@@ -28,9 +29,7 @@ function bmiCategory(bmi: number): string {
 
 export async function getNutritionData(): Promise<NutritionData> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   const empty: NutritionData = {
     calorieTarget: 0,
@@ -105,9 +104,7 @@ export async function logFood(input: {
   calories: number;
 }): Promise<{ error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir." };
 
   const { error } = await supabase.from("nutrition_logs").insert({

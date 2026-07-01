@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ReactNode } from "react";
 
 type Tab = { href: string; label: string; icon: ReactNode };
@@ -50,7 +51,6 @@ const TABS: Tab[] = [
 
 export default function BottomNav() {
   const pathname = usePathname();
-  const router = useRouter();
   const isActive = (href: string) => pathname === href;
 
   return (
@@ -72,12 +72,12 @@ export default function BottomNav() {
         zIndex: 70,
       }}
     >
-      <NavButton tab={TABS[0]} active={isActive(TABS[0].href)} onClick={() => router.push(TABS[0].href)} />
-      <NavButton tab={TABS[1]} active={isActive(TABS[1].href)} onClick={() => router.push(TABS[1].href)} />
+      <NavButton tab={TABS[0]} active={isActive(TABS[0].href)} />
+      <NavButton tab={TABS[1]} active={isActive(TABS[1].href)} />
 
       {/* Center elevated Coach button */}
-      <button
-        onClick={() => router.push("/coach")}
+      <Link
+        href="/coach"
         style={{
           display: "flex",
           flexDirection: "column",
@@ -85,6 +85,7 @@ export default function BottomNav() {
           gap: 5,
           flex: 1,
           marginTop: -14,
+          textDecoration: "none",
         }}
       >
         <div
@@ -111,26 +112,18 @@ export default function BottomNav() {
         >
           Coach
         </span>
-      </button>
+      </Link>
 
-      <NavButton tab={TABS[2]} active={isActive(TABS[2].href)} onClick={() => router.push(TABS[2].href)} />
-      <NavButton tab={TABS[3]} active={isActive(TABS[3].href)} onClick={() => router.push(TABS[3].href)} />
+      <NavButton tab={TABS[2]} active={isActive(TABS[2].href)} />
+      <NavButton tab={TABS[3]} active={isActive(TABS[3].href)} />
     </div>
   );
 }
 
-function NavButton({
-  tab,
-  active,
-  onClick,
-}: {
-  tab: Tab;
-  active: boolean;
-  onClick: () => void;
-}) {
+function NavButton({ tab, active }: { tab: Tab; active: boolean }) {
   return (
-    <button
-      onClick={onClick}
+    <Link
+      href={tab.href}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -138,12 +131,13 @@ function NavButton({
         gap: 5,
         flex: 1,
         color: active ? "var(--acc)" : "var(--dim)",
+        textDecoration: "none",
       }}
     >
       {tab.icon}
       <span style={{ font: "700 10px var(--font-archivo), sans-serif" }}>
         {tab.label}
       </span>
-    </button>
+    </Link>
   );
 }

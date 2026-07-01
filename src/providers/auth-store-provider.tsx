@@ -1,6 +1,5 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/stores/auth-store";
 import { Profile } from "@/types/profile";
 import { ReactNode, useEffect } from "react";
@@ -12,12 +11,10 @@ export default function AuthStoreProvider({
   children: ReactNode;
   profile: Profile;
 }) {
+  // The profile is already validated server-side in the (app) layout, so hydrate
+  // the store directly instead of firing another auth round-trip on every mount.
   useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      useAuthStore.getState().setUser(user);
-      useAuthStore.getState().setProfile(profile);
-    });
+    useAuthStore.getState().setProfile(profile);
   }, [profile]);
 
   return <>{children}</>;
