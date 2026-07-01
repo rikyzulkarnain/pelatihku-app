@@ -3,10 +3,14 @@
 import PhoneShell from "@/components/common/phone-shell";
 import PkButton from "@/components/common/pk-button";
 import ThemeToggle from "@/components/common/theme-toggle";
+import { useInstall } from "@/providers/install-provider";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 export default function WelcomeView() {
   const router = useRouter();
+  const { canInstall, isIOS, installed, promptInstall } = useInstall();
+  const showInstall = !installed && (canInstall || isIOS);
 
   return (
     <PhoneShell>
@@ -88,6 +92,20 @@ export default function WelcomeView() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+          {showInstall && (
+            <PkButton
+              variant="outline"
+              onClick={() =>
+                canInstall
+                  ? promptInstall()
+                  : toast.info(
+                      "Di iPhone: ketuk Bagikan ⬆️ di Safari, lalu “Tambah ke Layar Utama”.",
+                    )
+              }
+            >
+              📲 Install aplikasi
+            </PkButton>
+          )}
           <PkButton onClick={() => router.push("/register")}>
             Buat akun gratis
           </PkButton>

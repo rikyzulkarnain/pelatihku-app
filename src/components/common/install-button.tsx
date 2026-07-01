@@ -1,59 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
+import { useInstall } from "@/providers/install-provider";
 
 export default function InstallButton() {
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installed, setInstalled] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
+  const { canInstall, isIOS, installed, promptInstall } = useInstall();
 
-  useEffect(() => {
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-    if (standalone) {
-      setInstalled(true);
-      return;
-    }
-
-    const ua = window.navigator.userAgent;
-    // iOS Safari tidak mendukung beforeinstallprompt → butuh instruksi manual.
-    if (/iphone|ipad|ipod/i.test(ua) && !/crios|fxios/i.test(ua)) setIsIOS(true);
-
-    const onPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferred(e as BeforeInstallPromptEvent);
-    };
-    const onInstalled = () => {
-      setInstalled(true);
-      setDeferred(null);
-      toast.success("Aplikasi terpasang! 🎉");
-    };
-    window.addEventListener("beforeinstallprompt", onPrompt);
-    window.addEventListener("appinstalled", onInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onPrompt);
-      window.removeEventListener("appinstalled", onInstalled);
-    };
-  }, []);
-
-  async function install() {
-    if (!deferred) return;
-    await deferred.prompt();
-    const choice = await deferred.userChoice;
-    if (choice.outcome === "accepted") setDeferred(null);
-  }
-
-  // Sudah terpasang / dibuka sebagai app → sembunyikan.
+  // Sudah terpasang / dibuka sebagai app, atau belum bisa install → sembunyikan.
   if (installed) return null;
-  // Bukan iOS dan browser belum menawarkan install → jangan tampilkan tombol mati.
-  if (!deferred && !isIOS) return null;
+  if (!canInstall && !isIOS) return null;
 
   return (
     <div style={{ marginTop: 14, borderRadius: 20, padding: 18, background: "var(--surface)", border: "1px solid var(--line2)" }}>
@@ -85,13 +39,9 @@ export default function InstallButton() {
         </div>
       </div>
 
-      {isIOS ? (
-        <div style={{ marginTop: 12, borderRadius: 12, padding: "11px 13px", background: "var(--raised)", font: "500 12.5px/1.6 var(--font-jakarta), sans-serif", color: "var(--ink2)" }}>
-          Di iPhone: ketuk tombol <b>Bagikan</b> <span style={{ color: "var(--acc)" }}>⬆️</span> di Safari, lalu pilih <b>“Tambah ke Layar Utama”</b>.
-        </div>
-      ) : (
+      {canInstall ? (
         <button
-          onClick={install}
+          onClick={promptInstall}
           style={{
             width: "100%",
             marginTop: 14,
@@ -104,6 +54,10 @@ export default function InstallButton() {
         >
           Pasang sekarang
         </button>
+      ) : (
+        <div style={{ marginTop: 12, borderRadius: 12, padding: "11px 13px", background: "var(--raised)", font: "500 12.5px/1.6 var(--font-jakarta), sans-serif", color: "var(--ink2)" }}>
+          Di iPhone: ketuk tombol <b>Bagikan</b> <span style={{ color: "var(--acc)" }}>⬆️</span> di Safari, lalu pilih <b>“Tambah ke Layar Utama”</b>.
+        </div>
       )}
     </div>
   );
