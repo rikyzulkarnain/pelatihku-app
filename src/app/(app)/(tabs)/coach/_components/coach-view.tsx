@@ -40,28 +40,41 @@ export default function CoachView({ init }: { init: CoachInit }) {
 
     const userMsg: Conversation = { role: "user", parts: [{ text: clean }] };
     const history = [...messages, userMsg];
-    setMessages([...history, { role: "model", parts: [{ text: "" }] }]);
+    const emptyModel: Conversation = {
+      role: "model",
+      parts: thinking ? [{ thought: true, text: "" }, { text: "" }] : [{ text: "" }],
+    };
+    setMessages([...history, emptyModel]);
     setInput("");
     setBusy(true);
 
     let answer = "";
+    let thought = "";
+    const render = () =>
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = {
+          role: "model",
+          parts: thinking
+            ? [{ thought: true, text: thought }, { text: answer }]
+            : [{ text: answer }],
+        };
+        return next;
+      });
+
     try {
       const stream = await handleCoachStreaming(history, { model, thinking });
       for await (const chunk of stream) {
-        answer += chunk;
-        setMessages((prev) => {
-          const next = [...prev];
-          next[next.length - 1] = { role: "model", parts: [{ text: answer }] };
-          return next;
-        });
+        if (chunk.startsWith("[thought]")) {
+          thought += chunk.slice("[thought]".length);
+        } else {
+          answer += chunk;
+        }
+        render();
       }
       if (!answer) {
         answer = "Maaf, aku belum bisa menjawab itu. Coba tanya hal lain seputar latihanmu ya.";
-        setMessages((prev) => {
-          const next = [...prev];
-          next[next.length - 1] = { role: "model", parts: [{ text: answer }] };
-          return next;
-        });
+        render();
       }
       await saveTurn(init.conversationId, clean, answer);
     } catch (e) {
@@ -179,6 +192,9 @@ export default function CoachView({ init }: { init: CoachInit }) {
 
         {messages.map((m, i) => {
           const isUser = m.role === "user";
+          // Lewati gelembung model yang masih kosong — indikator "mengetik"
+          // (titik animasi) di bawah yang menanganinya, biar tidak dobel.
+          if (!isUser && !m.parts.some((p) => p.text)) return null;
           return (
             <div key={i} style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
               <div
@@ -196,7 +212,11 @@ export default function CoachView({ init }: { init: CoachInit }) {
                   m.parts[0].text
                 ) : (
                   <div className="pk-md">
-                    <Markdown>{m.parts[0].text || "…"}</Markdown>
+                    {m.parts.map((part, pi) => {
+                      if (!part.text) return null;
+                      if (part.thought) return <ThoughtBlock key={pi} text={part.text} />;
+                      return <Markdown key={pi}>{part.text}</Markdown>;
+                    })}
                   </div>
                 )}
               </div>
@@ -204,7 +224,7 @@ export default function CoachView({ init }: { init: CoachInit }) {
           );
         })}
 
-        {busy && messages[messages.length - 1]?.parts[0].text === "" && (
+        {busy && !messages[messages.length - 1]?.parts.some((p) => p.text) && (
           <div style={{ alignSelf: "flex-start", display: "flex", gap: 5, padding: "14px 16px", borderRadius: "16px 16px 16px 4px", background: "var(--surface)", border: "1px solid var(--line2)" }}>
             {[0, 0.2, 0.4].map((d) => (
               <span
@@ -250,25 +270,31 @@ export default function CoachView({ init }: { init: CoachInit }) {
       <div style={{ padding: "10px 16px 14px", display: "flex", gap: 9, alignItems: "flex-end" }}>
         <button
           onClick={toggleVoice}
-          aria-label={listening ? "Berhenti merekam" : "Tanya pakai suara"}
+          disabled={busy}
+          aria-label={listening ? "Berhenti & kirim" : "Tanya pakai suara"}
           style={{
             width: 48,
             height: 48,
             borderRadius: 16,
             flex: "none",
-            background: listening ? "var(--lime)" : "var(--surface)",
+            background: listening ? "#ff3b30" : "var(--surface)",
             border: listening ? "none" : "1px solid var(--line2)",
-            color: listening ? "#10130a" : "var(--dim)",
+            color: listening ? "#fff" : "var(--dim)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            opacity: busy && !listening ? 0.5 : 1,
             animation: listening ? "pk-pulse 1.4s ease-in-out infinite" : "none",
           }}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="9" y="2" width="6" height="12" rx="3" />
-            <path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" />
-          </svg>
+          {listening ? (
+            <span style={{ width: 16, height: 16, borderRadius: 4, background: "#fff", display: "block" }} />
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" />
+            </svg>
+          )}
         </button>
         <input
           value={input}
@@ -307,6 +333,48 @@ export default function CoachView({ init }: { init: CoachInit }) {
           </svg>
         </button>
       </div>
+    </div>
+  );
+}
+
+function ThoughtBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "5px 10px",
+          borderRadius: 10,
+          background: "var(--raised)",
+          border: "1px solid var(--line2)",
+          color: "var(--dim)",
+          font: "700 11.5px var(--font-archivo), sans-serif",
+        }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.7.8 3.2 2 4.2V15a2 2 0 0 0 2 2h.5M9.5 2A5.5 5.5 0 0 1 15 7.5c0 1.7-.8 3.2-2 4.2V15a2 2 0 0 1-2 2h-.5M9 20.5h4M10 22h2" />
+        </svg>
+        {open ? "Sembunyikan alur berpikir" : "Tampilkan alur berpikir"}
+        <span style={{ fontSize: 9 }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div
+          className="pk-md"
+          style={{
+            marginTop: 8,
+            paddingLeft: 12,
+            borderLeft: "2px solid var(--line2)",
+            color: "var(--dim)",
+            font: "400 12.5px/1.6 var(--font-jakarta), sans-serif",
+          }}
+        >
+          <Markdown>{text}</Markdown>
+        </div>
+      )}
     </div>
   );
 }

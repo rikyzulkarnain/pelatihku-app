@@ -1,7 +1,13 @@
 "use client";
 
+import {
+  COACH_MODELS,
+  COACH_MODEL_LABELS,
+  CoachModel,
+  DEFAULT_COACH_MODEL,
+} from "@/constants/coach-constant";
 import { nutritionChat, NutritionChatResult } from "@/features/nutrition/chat";
-import { useAudioRecorder } from "@/hooks/use-audio-recorder";
+import { useVoiceInput } from "@/hooks/use-voice-input";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -30,17 +36,19 @@ export default function NutritionChat({
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
       role: "assistant",
-      text: "Ceritakan makananmu — ketik, tekan 🎤 untuk pesan suara, atau 📷 untuk foto makanan / struk. Protein, karbo & lemak dihitung otomatis. Bisa juga bilang “hapus telur dadar” atau “ubah nasi jadi 2 centong”.",
+      text: "Ceritakan makananmu — ketik, tekan 🎤 untuk bicara (teksnya muncul otomatis), atau 📷 untuk foto makanan / struk. Protein, karbo & lemak dihitung otomatis. Bisa juga bilang “hapus telur dadar” atau “ubah nasi jadi 2 centong”.",
     },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [model, setModel] = useState<CoachModel>(DEFAULT_COACH_MODEL);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const busyRef = useRef(false);
 
-  const { recording, toggle: toggleRecording } = useAudioRecorder({
-    onRecorded: (audio) => run({ audio }, "🎤 Pesan suara"),
+  const { listening, toggle: toggleVoice } = useVoiceInput({
+    onInterim: setInput,
+    onFinal: (text) => sendText(text),
   });
 
   useEffect(() => {
@@ -48,7 +56,7 @@ export default function NutritionChat({
   }, [messages, busy]);
 
   async function run(
-    payload: Parameters<typeof nutritionChat>[0],
+    payload: Omit<Parameters<typeof nutritionChat>[0], "model">,
     userLabel: string,
   ) {
     if (busyRef.current) return;
@@ -56,7 +64,7 @@ export default function NutritionChat({
     setBusy(true);
     setMessages((m) => [...m, { role: "user", text: userLabel }]);
     try {
-      const res = await nutritionChat(payload);
+      const res = await nutritionChat({ ...payload, model });
       if (res.error) {
         setMessages((m) => [...m, { role: "assistant", text: `⚠️ ${res.error}` }]);
       } else {
@@ -79,9 +87,9 @@ export default function NutritionChat({
     }
   }
 
-  function sendText() {
-    const clean = input.trim();
-    if (!clean || busy) return;
+  function sendText(text?: string) {
+    const clean = (text ?? input).trim();
+    if (!clean || busyRef.current) return;
     setInput("");
     run({ text: clean }, clean);
   }
@@ -137,36 +145,62 @@ export default function NutritionChat({
         <div style={{ width: 42, height: 5, borderRadius: 5, background: "var(--raised2)", margin: "8px auto 4px" }} />
 
         {/* header */}
-        <div style={{ padding: "6px 22px 12px", borderBottom: "1px solid var(--line2)", display: "flex", alignItems: "center", gap: 12 }}>
-          <div
+        <div style={{ padding: "6px 22px 12px", borderBottom: "1px solid var(--line2)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 13,
+                background: "linear-gradient(150deg,#cdf93f,#9fe119)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 20,
+              }}
+            >
+              🍚
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ font: "800 16px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+                Catat makanan
+              </div>
+              <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--acc)" }}>
+                ● chat · suara · foto — makro dihitung otomatis
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Tutup"
+              style={{ width: 34, height: 34, borderRadius: 10, background: "var(--surface)", border: "1px solid var(--line2)", color: "var(--dim)", fontSize: 18, lineHeight: 1 }}
+            >
+              ✕
+            </button>
+          </div>
+          {/* pilih model Gemini free (fallback otomatis kalau kuota habis) */}
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value as CoachModel)}
+            aria-label="Model Gemini"
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 13,
-              background: "linear-gradient(150deg,#cdf93f,#9fe119)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 20,
+              width: "100%",
+              marginTop: 10,
+              padding: "9px 12px",
+              borderRadius: 12,
+              font: "700 12px var(--font-archivo), sans-serif",
+              background: "var(--surface)",
+              color: "var(--dim)",
+              border: "1px solid var(--line2)",
+              outline: "none",
+              cursor: "pointer",
             }}
           >
-            🍚
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ font: "800 16px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
-              Catat makanan
-            </div>
-            <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--acc)" }}>
-              ● chat · suara · foto — makro dihitung otomatis
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Tutup"
-            style={{ width: 34, height: 34, borderRadius: 10, background: "var(--surface)", border: "1px solid var(--line2)", color: "var(--dim)", fontSize: 18, lineHeight: 1 }}
-          >
-            ✕
-          </button>
+            {COACH_MODELS.map((m) => (
+              <option key={m} value={m}>
+                {COACH_MODEL_LABELS[m]}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* messages */}
@@ -222,27 +256,27 @@ export default function NutritionChat({
 
         {/* input */}
         <div style={{ padding: "10px 16px 18px", display: "flex", gap: 8, alignItems: "flex-end" }}>
-          {/* mic — tekan untuk rekam, jadi kotak merah saat merekam */}
+          {/* mic — tekan untuk bicara (jadi kotak merah), tekan lagi untuk kirim */}
           <button
-            onClick={toggleRecording}
+            onClick={toggleVoice}
             disabled={busy}
-            aria-label={recording ? "Berhenti merekam" : "Rekam suara"}
+            aria-label={listening ? "Berhenti & kirim" : "Bicara"}
             style={{
               width: 48,
               height: 48,
               borderRadius: 16,
               flex: "none",
-              background: recording ? "#ff3b30" : "var(--surface)",
-              border: recording ? "none" : "1px solid var(--line2)",
-              color: recording ? "#fff" : "var(--dim)",
+              background: listening ? "#ff3b30" : "var(--surface)",
+              border: listening ? "none" : "1px solid var(--line2)",
+              color: listening ? "#fff" : "var(--dim)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              opacity: busy && !recording ? 0.5 : 1,
-              animation: recording ? "pk-pulse 1.4s ease-in-out infinite" : "none",
+              opacity: busy && !listening ? 0.5 : 1,
+              animation: listening ? "pk-pulse 1.4s ease-in-out infinite" : "none",
             }}
           >
-            {recording ? (
+            {listening ? (
               <span style={{ width: 16, height: 16, borderRadius: 4, background: "#fff", display: "block" }} />
             ) : (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -288,8 +322,7 @@ export default function NutritionChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendText()}
-            placeholder={recording ? "Merekam… tekan ⏹ untuk selesai" : "Tulis makananmu…"}
-            disabled={recording}
+            placeholder={listening ? "Mendengarkan… tekan ⏹ untuk kirim" : "Tulis makananmu…"}
             style={{
               flex: 1,
               minWidth: 0,
@@ -303,7 +336,7 @@ export default function NutritionChat({
             }}
           />
           <button
-            onClick={sendText}
+            onClick={() => sendText()}
             disabled={busy || !input.trim()}
             aria-label="Kirim"
             style={{

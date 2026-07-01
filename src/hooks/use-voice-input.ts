@@ -27,8 +27,11 @@ function createRecognition(): SpeechRecognitionLike | null {
 
 /**
  * Input suara via Web Speech API (speech-to-text di browser).
- * `onInterim` dipanggil tiap transkrip berubah (untuk mengisi input),
- * `onFinal` dipanggil sekali saat selesai dengan transkrip final.
+ * Tekan sekali untuk mulai mendengarkan (tombol jadi merah), tekan lagi untuk
+ * berhenti — transkrip final dikirim lewat `onFinal` sebagai TEKS biasa
+ * (bukan audio). `onInterim` dipanggil tiap transkrip berubah untuk mengisi
+ * input secara real-time. Mode continuous supaya tidak berhenti sendiri saat
+ * pengguna jeda; berhenti hanya saat ditekan lagi.
  */
 export function useVoiceInput({
   onInterim,
@@ -57,7 +60,7 @@ export function useVoiceInput({
     recRef.current = rec;
     rec.lang = lang;
     rec.interimResults = true;
-    rec.continuous = false;
+    rec.continuous = true;
     let transcript = "";
     rec.onresult = (e) => {
       transcript = Array.from({ length: e.results.length }, (_, i) => e.results[i][0].transcript).join(" ");
@@ -66,6 +69,7 @@ export function useVoiceInput({
     rec.onerror = () => setListening(false);
     rec.onend = () => {
       setListening(false);
+      recRef.current = null;
       if (transcript.trim()) onFinal(transcript.trim());
     };
     setListening(true);
