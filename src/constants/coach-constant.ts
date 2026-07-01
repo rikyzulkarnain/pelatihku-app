@@ -31,6 +31,15 @@ export const PERSONA_TONE: Record<CoachPersona, string> = {
     "Akrab, kasual, sedikit humor ringan, dan woles. Pakai bahasa sehari-hari yang santai tapi tetap akurat dan bertanggung jawab.",
 };
 
+// Daftar model Gemini free (urut prioritas). Jika model di atas kena limit
+// kuota (429 / RESOURCE_EXHAUSTED), coach otomatis turun ke model berikutnya.
+export const COACH_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+];
+
 export const SUGGESTED_PROMPTS = [
   "Lutut sakit saat squat, salah di mana?",
   "Alat bench penuh, ganti gerakan apa?",
