@@ -16,8 +16,15 @@ type DayLog = {
   calories: number;
 };
 
+type Totals = { protein: number; carb: number; fat: number; calories: number };
+
 export default function NutritionView({ data }: { data: NutritionData }) {
-  const [proteinNow, setProteinNow] = useState(data.proteinNow);
+  const [totals, setTotals] = useState<Totals>({
+    protein: data.proteinNow,
+    carb: data.carbNow,
+    fat: data.fatNow,
+    calories: data.calorieNow,
+  });
   const [adding, setAdding] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [logs, setLogs] = useState<DayLog[]>(() =>
@@ -30,11 +37,11 @@ export default function NutritionView({ data }: { data: NutritionData }) {
     })),
   );
 
-  const pct = data.proteinTarget
-    ? Math.min(100, Math.round((proteinNow / data.proteinTarget) * 100))
-    : 0;
   const circumference = 2 * Math.PI * 50;
-  const kcalDash = `${circumference} ${circumference}`;
+  const kcalPct = data.calorieTarget
+    ? Math.min(1, totals.calories / data.calorieTarget)
+    : 0;
+  const kcalDash = `${circumference * kcalPct} ${circumference}`;
 
   async function add(food: (typeof FOOD_EXAMPLES)[number]) {
     setAdding(food.name);
@@ -48,7 +55,11 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       toast.error(res.error);
       return;
     }
-    setProteinNow((p) => p + food.protein_g);
+    setTotals((t) => ({
+      ...t,
+      protein: t.protein + food.protein_g,
+      calories: t.calories + food.calories,
+    }));
     setLogs((prev) => [
       { food_name: food.name, protein_g: food.protein_g, carb_g: 0, fat_g: 0, calories: food.calories },
       ...prev,
@@ -171,27 +182,15 @@ export default function NutritionView({ data }: { data: NutritionData }) {
         <Macro value={`${data.fatTarget}g`} label="Lemak" color="#ff9a5c" />
       </div>
 
-      {/* protein progress today */}
+      {/* macro progress today */}
       <div style={{ marginTop: 18, borderRadius: 18, padding: 18, background: "var(--surface)", border: "1px solid var(--line2)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <span style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
-            Protein hari ini
-          </span>
-          <span style={{ font: "700 13px var(--font-archivo), sans-serif", color: "var(--acc)" }}>
-            {proteinNow} / {data.proteinTarget} g
-          </span>
+        <div style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)", marginBottom: 14 }}>
+          Asupan hari ini
         </div>
-        <div style={{ height: 10, borderRadius: 10, background: "var(--track)", overflow: "hidden" }}>
-          <div
-            style={{
-              height: "100%",
-              width: `${pct}%`,
-              borderRadius: 10,
-              background: "linear-gradient(90deg,#9fe119,#C9FB3C)",
-              transition: "width .4s ease",
-            }}
-          />
-        </div>
+        <MacroBar label="Kalori" now={totals.calories} target={data.calorieTarget} unit=" kkal" color="#C9FB3C" />
+        <MacroBar label="Protein" now={totals.protein} target={data.proteinTarget} unit=" g" color="#C9FB3C" />
+        <MacroBar label="Karbo" now={totals.carb} target={data.carbTarget} unit=" g" color="#7cc4ff" />
+        <MacroBar label="Lemak" now={totals.fat} target={data.fatTarget} unit=" g" color="#ff9a5c" last />
       </div>
 
       {/* today's food history */}
@@ -286,27 +285,74 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       {chatOpen && (
         <NutritionChat
           onClose={() => setChatOpen(false)}
-          onLogged={(res) => {
-            const t = res.totals;
-            if (typeof res.proteinNow === "number") {
-              setProteinNow(res.proteinNow);
-            } else if (t) {
-              setProteinNow((p) => p + t.protein_g);
+          onResult={(res) => {
+            if (res.totals) {
+              setTotals({
+                protein: res.totals.protein_g,
+                carb: res.totals.carb_g,
+                fat: res.totals.fat_g,
+                calories: res.totals.calories,
+              });
             }
-            if (res.items?.length) {
-              const added = res.items.map((it) => ({
-                food_name: it.name,
-                protein_g: it.protein_g,
-                carb_g: it.carb_g,
-                fat_g: it.fat_g,
-                calories: Math.round(it.calories),
-              }));
-              setLogs((prev) => [...added, ...prev]);
+            if (res.logs) {
+              setLogs(
+                res.logs.map((l) => ({
+                  food_name: l.food_name,
+                  protein_g: l.protein_g,
+                  carb_g: l.carb_g,
+                  fat_g: l.fat_g,
+                  calories: l.calories,
+                })),
+              );
             }
-            if (t && t.protein_g > 0) toast.success(`+${t.protein_g}g protein tercatat`);
+            if (res.changed) toast.success("Catatan makanan diperbarui");
           }}
         />
       )}
+    </div>
+  );
+}
+
+function MacroBar({
+  label,
+  now,
+  target,
+  unit,
+  color,
+  last,
+}: {
+  label: string;
+  now: number;
+  target: number;
+  unit: string;
+  color: string;
+  last?: boolean;
+}) {
+  const pct = target ? Math.min(100, Math.round((now / target) * 100)) : 0;
+  const over = target > 0 && now > target;
+  const barColor = over ? "#ff6b6b" : color;
+  return (
+    <div style={{ marginBottom: last ? 0 : 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+        <span style={{ font: "600 12.5px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+          {label}
+        </span>
+        <span style={{ font: "700 12.5px var(--font-archivo), sans-serif", color: over ? "#ff6b6b" : "var(--ink)" }}>
+          {formatNumber(Math.round(now))}
+          <span style={{ color: "var(--dim)" }}> / {formatNumber(target)}{unit}</span>
+        </span>
+      </div>
+      <div style={{ height: 8, borderRadius: 8, background: "var(--track)", overflow: "hidden" }}>
+        <div
+          style={{
+            height: "100%",
+            width: `${pct}%`,
+            borderRadius: 8,
+            background: barColor,
+            transition: "width .4s ease",
+          }}
+        />
+      </div>
     </div>
   );
 }

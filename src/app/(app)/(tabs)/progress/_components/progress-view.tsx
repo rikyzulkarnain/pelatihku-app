@@ -13,6 +13,7 @@ import {
   AreaChart,
   Bar,
   BarChart,
+  LabelList,
   ResponsiveContainer,
   XAxis,
 } from "recharts";
@@ -231,10 +232,17 @@ export default function ProgressView({ data }: { data: ProgressData }) {
           Total beban per minggu
         </div>
         {data.volumeSeries.length > 0 ? (
-          <ResponsiveContainer width="100%" height={120}>
-            <BarChart data={data.volumeSeries} margin={{ top: 5, right: 8, left: 8, bottom: 0 }}>
+          <ResponsiveContainer width="100%" height={130}>
+            <BarChart data={data.volumeSeries} margin={{ top: 20, right: 8, left: 8, bottom: 0 }} barCategoryGap="28%">
               <XAxis dataKey="label" tick={{ fill: "var(--faint)", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Bar dataKey="volume" fill="#C9FB3C" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="volume" fill="#C9FB3C" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                <LabelList
+                  dataKey="volume"
+                  position="top"
+                  formatter={(v) => formatNumber(Number(v))}
+                  style={{ fill: "var(--dim)", fontSize: 10, fontWeight: 700 }}
+                />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         ) : (
