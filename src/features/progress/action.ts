@@ -195,6 +195,43 @@ export async function getProgressData(): Promise<ProgressData> {
   };
 }
 
+/**
+ * Reset total: hapus semua progres (sesi latihan, set, catatan gizi, berat) &
+ * program, lalu tandai onboarding belum selesai supaya pengguna mengulang dari
+ * penentuan tujuan. Profil akun tetap ada.
+ */
+export async function resetGoalAndProgress(): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: "Sesi berakhir, silakan masuk lagi." };
+
+  // Urut anak → induk agar aman meski tanpa cascade.
+  const tables = [
+    "set_logs",
+    "workout_sessions",
+    "nutrition_logs",
+    "nutrition_targets",
+    "bodyweight_logs",
+    "program_exercises",
+    "program_days",
+    "programs",
+  ];
+
+  for (const table of tables) {
+    const { error } = await supabase.from(table).delete().eq("user_id", user.id);
+    if (error) return { error: error.message };
+  }
+
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .update({ onboarding_completed: false, updated_at: new Date().toISOString() })
+    .eq("id", user.id);
+  if (profileError) return { error: profileError.message };
+
+  revalidatePath("/", "layout");
+  return {};
+}
+
 export async function logBodyweight(
   weightKg: number,
 ): Promise<{ error?: string }> {

@@ -1,10 +1,10 @@
-import PageSkeleton from "@/components/common/page-skeleton";
+import { SessionSkeleton } from "@/components/common/page-skeleton";
 import PhoneShell from "@/components/common/phone-shell";
 
 export default function Loading() {
   return (
     <PhoneShell>
-      <PageSkeleton />
+      <SessionSkeleton />
     </PhoneShell>
   );
 }

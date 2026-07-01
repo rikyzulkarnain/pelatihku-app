@@ -2,7 +2,11 @@
 
 import InstallButton from "@/components/common/install-button";
 import { signOutAction } from "@/features/auth/action";
-import { logBodyweight, ProgressData } from "@/features/progress/action";
+import {
+  logBodyweight,
+  ProgressData,
+  resetGoalAndProgress,
+} from "@/features/progress/action";
 import { GOAL_LABEL, LEVEL_LABEL } from "@/constants/labels";
 import { formatNumber } from "@/lib/utils";
 import { useRouter } from "next/navigation";
@@ -23,6 +27,21 @@ export default function ProgressView({ data }: { data: ProgressData }) {
   const [weight, setWeight] = useState<number>(data.latestWeight ?? 65);
   const [saving, setSaving] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  async function reset() {
+    setResetting(true);
+    const res = await resetGoalAndProgress();
+    if (res.error) {
+      setResetting(false);
+      setConfirmReset(false);
+      toast.error(res.error);
+      return;
+    }
+    toast.success("Progres direset. Ayo tentukan tujuan baru!");
+    router.replace("/onboarding");
+  }
 
   async function save() {
     setSaving(true);
@@ -279,6 +298,74 @@ export default function ProgressView({ data }: { data: ProgressData }) {
         >
           {saving ? "Menyimpan…" : "Simpan berat"}
         </button>
+      </div>
+
+      {/* reset tujuan & progres */}
+      <div style={{ marginTop: 14, borderRadius: 20, padding: 18, background: "var(--surface)", border: "1px solid rgba(255,107,107,.28)" }}>
+        <div style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+          Reset tujuan
+        </div>
+        <div style={{ font: "500 12.5px/1.5 var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 4, marginBottom: 14 }}>
+          Menghapus semua progres (sesi latihan, catatan gizi, berat, & program)
+          lalu memulai lagi dari penentuan tujuan. Tindakan ini tidak bisa dibatalkan.
+        </div>
+
+        {!confirmReset ? (
+          <button
+            onClick={() => setConfirmReset(true)}
+            style={{
+              width: "100%",
+              padding: 13,
+              borderRadius: 14,
+              background: "rgba(255,107,107,.12)",
+              border: "1px solid rgba(255,107,107,.3)",
+              color: "#ff6b6b",
+              font: "800 14px var(--font-archivo), sans-serif",
+            }}
+          >
+            Reset tujuan & progres
+          </button>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ font: "700 13px var(--font-archivo), sans-serif", color: "#ff6b6b", textAlign: "center" }}>
+              Yakin? Semua progres akan hilang permanen.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setConfirmReset(false)}
+                disabled={resetting}
+                style={{
+                  flex: 1,
+                  padding: 13,
+                  borderRadius: 14,
+                  background: "var(--raised)",
+                  border: "1px solid var(--line2)",
+                  color: "var(--ink2)",
+                  font: "800 14px var(--font-archivo), sans-serif",
+                  opacity: resetting ? 0.6 : 1,
+                }}
+              >
+                Batal
+              </button>
+              <button
+                onClick={reset}
+                disabled={resetting}
+                style={{
+                  flex: 1,
+                  padding: 13,
+                  borderRadius: 14,
+                  background: "#ff6b6b",
+                  border: "none",
+                  color: "#fff",
+                  font: "800 14px var(--font-archivo), sans-serif",
+                  opacity: resetting ? 0.7 : 1,
+                }}
+              >
+                {resetting ? "Mereset…" : "Ya, reset"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
