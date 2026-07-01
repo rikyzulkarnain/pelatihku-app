@@ -15,6 +15,8 @@ export type NutritionLog = {
   log_date: string;
   food_name: string;
   protein_g: number;
+  carb_g: number;
+  fat_g: number;
   calories: number;
   created_at: string;
 };

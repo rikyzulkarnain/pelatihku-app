@@ -1,24 +1,31 @@
 "use client";
 
-import { PERSONA_OPTIONS, SUGGESTED_PROMPTS } from "@/constants/coach-constant";
 import {
-  CoachInit,
-  saveTurn,
-  setConversationPersona,
-} from "@/features/coach/action";
+  COACH_MODELS,
+  COACH_MODEL_LABELS,
+  CoachModel,
+  DEFAULT_COACH_MODEL,
+  SUGGESTED_PROMPTS,
+} from "@/constants/coach-constant";
+import { CoachInit, saveTurn } from "@/features/coach/action";
 import { handleCoachStreaming } from "@/features/coach/chat";
+import { useVoiceInput } from "@/hooks/use-voice-input";
 import { Conversation } from "@/types/ai";
-import { CoachPersona } from "@/types/profile";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
-import { toast } from "sonner";
 
 export default function CoachView({ init }: { init: CoachInit }) {
   const [messages, setMessages] = useState<Conversation[]>(init.messages);
-  const [persona, setPersona] = useState<CoachPersona>(init.persona);
+  const [model, setModel] = useState<CoachModel>(DEFAULT_COACH_MODEL);
+  const [thinking, setThinking] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const { listening, toggle: toggleVoice } = useVoiceInput({
+    onInterim: setInput,
+    onFinal: (text) => send(text),
+  });
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -39,7 +46,7 @@ export default function CoachView({ init }: { init: CoachInit }) {
 
     let answer = "";
     try {
-      const stream = await handleCoachStreaming(history, persona);
+      const stream = await handleCoachStreaming(history, { model, thinking });
       for await (const chunk of stream) {
         answer += chunk;
         setMessages((prev) => {
@@ -73,12 +80,6 @@ export default function CoachView({ init }: { init: CoachInit }) {
     }
   }
 
-  async function changePersona(p: CoachPersona) {
-    setPersona(p);
-    await setConversationPersona(init.conversationId, p);
-    toast.success(`Gaya coach: ${p}`);
-  }
-
   return (
     <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", paddingBottom: 88 }}>
       {/* header */}
@@ -107,27 +108,55 @@ export default function CoachView({ init }: { init: CoachInit }) {
             </div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 7, marginTop: 12 }}>
-          {PERSONA_OPTIONS.map((p) => {
-            const active = persona === p.value;
-            return (
-              <button
-                key={p.value}
-                onClick={() => changePersona(p.value)}
-                style={{
-                  flex: 1,
-                  padding: "8px 6px",
-                  borderRadius: 12,
-                  font: "700 12px var(--font-archivo), sans-serif",
-                  background: active ? "var(--lime)" : "var(--surface)",
-                  color: active ? "#10130a" : "var(--dim)",
-                  border: active ? "none" : "1px solid var(--line2)",
-                }}
-              >
-                {p.label}
-              </button>
-            );
-          })}
+        <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+          {/* pilih model Gemini free (fallback otomatis kalau kuota habis) */}
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value as CoachModel)}
+            aria-label="Model Gemini"
+            style={{
+              flex: 1,
+              padding: "9px 12px",
+              borderRadius: 12,
+              font: "700 12px var(--font-archivo), sans-serif",
+              background: "var(--surface)",
+              color: "var(--dim)",
+              border: "1px solid var(--line2)",
+              outline: "none",
+              cursor: "pointer",
+            }}
+          >
+            {COACH_MODELS.map((m) => (
+              <option key={m} value={m}>
+                {COACH_MODEL_LABELS[m]}
+              </option>
+            ))}
+          </select>
+
+          {/* toggle thinking — ikon saja */}
+          <button
+            onClick={() => setThinking((t) => !t)}
+            aria-pressed={thinking}
+            aria-label={thinking ? "Thinking aktif" : "Thinking nonaktif"}
+            title={thinking ? "Thinking: aktif" : "Thinking: nonaktif"}
+            style={{
+              width: 40,
+              height: 40,
+              flex: "none",
+              borderRadius: 12,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: thinking ? "var(--lime)" : "var(--surface)",
+              color: thinking ? "#10130a" : "var(--dim)",
+              border: thinking ? "none" : "1px solid var(--line2)",
+            }}
+          >
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.7.8 3.2 2 4.2V15a2 2 0 0 0 2 2h.5M9.5 2A5.5 5.5 0 0 1 15 7.5c0 1.7-.8 3.2-2 4.2V15a2 2 0 0 1-2 2h-.5M9 20.5h4M10 22h2" />
+              <path d="M9 17v3.5M13 17v3.5" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -219,11 +248,33 @@ export default function CoachView({ init }: { init: CoachInit }) {
 
       {/* input */}
       <div style={{ padding: "10px 16px 14px", display: "flex", gap: 9, alignItems: "flex-end" }}>
+        <button
+          onClick={toggleVoice}
+          aria-label={listening ? "Berhenti merekam" : "Tanya pakai suara"}
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 16,
+            flex: "none",
+            background: listening ? "var(--lime)" : "var(--surface)",
+            border: listening ? "none" : "1px solid var(--line2)",
+            color: listening ? "#10130a" : "var(--dim)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            animation: listening ? "pk-pulse 1.4s ease-in-out infinite" : "none",
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="2" width="6" height="12" rx="3" />
+            <path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" />
+          </svg>
+        </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send(input)}
-          placeholder="Tulis pertanyaanmu…"
+          placeholder={listening ? "Mendengarkan…" : "Tulis pertanyaanmu…"}
           style={{
             flex: 1,
             padding: "13px 16px",

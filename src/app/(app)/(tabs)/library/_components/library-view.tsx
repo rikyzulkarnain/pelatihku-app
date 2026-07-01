@@ -1,5 +1,6 @@
 "use client";
 
+import { ExerciseSheet } from "@/components/common/exercise-sheet";
 import { EQUIPMENT_LABEL, LEVEL_LABEL, MUSCLE_LABEL } from "@/constants/labels";
 import { searchExercises } from "@/features/library/action";
 import { Exercise } from "@/types/program";
@@ -177,130 +178,6 @@ export default function LibraryView({ exercises }: { exercises: Exercise[] }) {
       </div>
 
       {open && <ExerciseSheet exercise={open} onClose={() => setOpen(null)} />}
-    </div>
-  );
-}
-
-function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClose: () => void }) {
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 85,
-        background: "var(--scrim)",
-        backdropFilter: "blur(4px)",
-        WebkitBackdropFilter: "blur(4px)",
-        display: "flex",
-        alignItems: "flex-end",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "100%",
-          maxHeight: "88%",
-          overflowY: "auto",
-          background: "var(--sheet)",
-          borderRadius: "28px 28px 0 0",
-          borderTop: "1px solid rgba(201,251,60,.18)",
-          padding: "10px 22px 30px",
-          animation: "pk-up .3s both",
-        }}
-        className="no-scrollbar"
-      >
-        <div style={{ width: 42, height: 5, borderRadius: 5, background: "var(--raised2)", margin: "6px auto 18px" }} />
-        <div
-          style={{
-            height: 170,
-            borderRadius: 18,
-            background: "linear-gradient(150deg,var(--raised),var(--surface))",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            marginBottom: 18,
-          }}
-        >
-          <div
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: "50%",
-              background: "rgba(201,251,60,.15)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              animation: "pk-pulse 2s ease-in-out infinite",
-            }}
-          >
-            <svg width="26" height="26" viewBox="0 0 24 24" style={{ fill: "var(--acc)" }}>
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </div>
-          <span style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
-            Video teknik (placeholder)
-          </span>
-        </div>
-
-        <h2 style={{ font: "900 24px var(--font-archivo), sans-serif", color: "var(--ink)", margin: "0 0 6px" }}>
-          {exercise.name}
-        </h2>
-        <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-          <span style={{ font: "600 12px var(--font-archivo), sans-serif", color: "var(--acc)", padding: "5px 11px", borderRadius: 9, background: "rgba(201,251,60,.1)" }}>
-            {MUSCLE_LABEL[exercise.muscle_group] ?? exercise.muscle_group}
-          </span>
-          <span style={{ font: "600 12px var(--font-archivo), sans-serif", color: "var(--dim)", padding: "5px 11px", borderRadius: 9, background: "var(--raised)" }}>
-            {EQUIPMENT_LABEL[exercise.equipment] ?? exercise.equipment}
-          </span>
-        </div>
-
-        <div style={{ font: "800 11px var(--font-archivo), sans-serif", letterSpacing: ".14em", textTransform: "uppercase", color: "var(--dim)", marginBottom: 12 }}>
-          Cara melakukan
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 22 }}>
-          {exercise.technique_steps.map((step, i) => (
-            <div key={i} style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
-              <div
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: "50%",
-                  background: "var(--lime)",
-                  color: "#10130a",
-                  font: "800 13px var(--font-archivo), sans-serif",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flex: "none",
-                }}
-              >
-                {i + 1}
-              </div>
-              <div style={{ font: "500 14px/1.5 var(--font-jakarta), sans-serif", color: "var(--ink2)", paddingTop: 2 }}>
-                {step}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {exercise.injury_cautions.length > 0 && (
-          <div style={{ borderRadius: 14, padding: "14px 16px", background: "rgba(255,122,60,.08)", border: "1px solid rgba(255,122,60,.18)" }}>
-            <div style={{ font: "800 11px var(--font-archivo), sans-serif", letterSpacing: ".1em", textTransform: "uppercase", color: "#ff9a5c", marginBottom: 6 }}>
-              ⚠ Hindari cedera
-            </div>
-            <div style={{ font: "500 13px/1.5 var(--font-jakarta), sans-serif", color: "var(--ink2)" }}>
-              Hati-hati jika punya keluhan pada{" "}
-              {exercise.injury_cautions
-                .map((c) => c.replace(/_/g, " "))
-                .join(", ")}
-              . Jaga teknik, mulai dari beban ringan, dan hentikan bila terasa nyeri tajam.
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

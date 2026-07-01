@@ -1,7 +1,9 @@
 "use client";
 
+import { ExerciseSheet } from "@/components/common/exercise-sheet";
 import { completeSession, logSet, removeSet, SessionData } from "@/features/workout/action";
 import { formatNumber } from "@/lib/utils";
+import { Exercise } from "@/types/program";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -23,6 +25,7 @@ export default function SessionView({ data }: { data: SessionData }) {
   });
   const [finishing, setFinishing] = useState(false);
   const [summary, setSummary] = useState<{ volume: number; streak: number } | null>(null);
+  const [videoOf, setVideoOf] = useState<Exercise | null>(null);
 
   const repsFor = (exId: string) =>
     data.exercises.find((e) => e.exercise.id === exId)?.target_rep_high ?? 10;
@@ -216,6 +219,30 @@ export default function SessionView({ data }: { data: SessionData }) {
                     </button>
                   );
                 })}
+
+                {ex.exercise.video_url && (
+                  <button
+                    onClick={() => setVideoOf(ex.exercise)}
+                    aria-label="Lihat video teknik"
+                    style={{
+                      marginLeft: "auto",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 7,
+                      padding: "9px 13px",
+                      borderRadius: 11,
+                      background: "rgba(201,251,60,.1)",
+                      border: "1px solid rgba(201,251,60,.22)",
+                      color: "var(--acc)",
+                      font: "700 12.5px var(--font-archivo), sans-serif",
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" style={{ fill: "var(--acc)", flex: "none" }}>
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                    Video
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -241,6 +268,8 @@ export default function SessionView({ data }: { data: SessionData }) {
           {finishing ? "Menyimpan…" : "Selesaikan sesi"}
         </button>
       </div>
+
+      {videoOf && <ExerciseSheet exercise={videoOf} onClose={() => setVideoOf(null)} />}
 
       {summary && (
         <CompletionOverlay
