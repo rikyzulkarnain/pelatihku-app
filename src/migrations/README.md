@@ -18,18 +18,26 @@ editor (or `supabase db` CLI). Each file is idempotent enough to run once on a c
 | 11 | `011-seed-knowledge.sql` | Coach RAG knowledge entries |
 | 12 | `012-seed-fertility.sql` | Library demo videos + fertility/pelvic-floor movements (goal `kesuburan`) |
 | 13 | `013-nutrition-macros.sql` | Add `carb_g` + `fat_g` to `nutrition_logs` (chat/voice meal logging) |
+| 14 | `014-seed-exercises-extra.sql` | Seed 13 extra exercises (squat/hinge/core/leg varian + video URL) |
 
 ## After migrating: backfill embeddings
 
 The seeded `exercises` and `knowledge_base` rows have `embedding = null`. Generate them
-once (requires `GOOGLE_GEN_AI_API_KEY`) by calling the one-off server actions, e.g. from a
-throwaway route or a server action trigger:
+once (requires `GOOGLE_GEN_AI_API_KEY`) via the **POST `/api/embeddings`** endpoint:
 
-- `embedExercises()` — in `src/features/coach/embedding.ts`
-- `embedKnowledge()` — in `src/features/coach/embedding.ts`
+1. Login ke app (perlu authenticated session).
+2. Buka browser console atau kirim POST request:
+   ```bash
+   curl -X POST https://pelatihku-app.vercel.app/api/embeddings \
+     -H "Cookie: <your-session-cookie>"
+   ```
+   Atau dari browser console: `fetch('/api/embeddings', { method: 'POST' })`
+3. Tunggu sampai selesai (bisa beberapa menit untuk semua exercises + knowledge).
 
-Both read rows where `embedding is null`, call Gemini `gemini-embedding-2` (768-dim), and
-update in place. Re-run safely; already-embedded rows are skipped.
+Fungsi `embedExercises()` & `embedKnowledge()` di `src/features/ai/embedding.ts` akan:
+- Baca rows dengan `embedding = null` saja.
+- Call Gemini `gemini-embedding-2` (768-dim).
+- Update vector in-place. Idempotent — re-run dengan aman.
 
 ## Auth note
 
