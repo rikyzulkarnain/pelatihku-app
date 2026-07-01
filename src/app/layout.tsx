@@ -6,7 +6,22 @@ import QueryProvider from "@/providers/query-client";
 import { ThemeProvider } from "@/providers/theme-provider";
 import ServiceWorkerRegister from "@/components/common/service-worker-register";
 import SplashScreen from "@/components/common/splash-screen";
+import InstallProvider from "@/providers/install-provider";
 import { Toaster } from "sonner";
+
+// Tangkap event install sedini mungkin (sebelum React hydrate) agar tidak hilang.
+const INSTALL_CAPTURE = `(function(){
+  window.__pkInstall = null;
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault();
+    window.__pkInstall = e;
+    window.dispatchEvent(new Event('pk-installable'));
+  });
+  window.addEventListener('appinstalled', function(){
+    window.__pkInstall = null;
+    window.dispatchEvent(new Event('pk-installed'));
+  });
+})();`;
 
 const archivo = Archivo({
   subsets: ["latin"],
@@ -33,10 +48,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
-      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
     ],
-    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", type: "image/png" }],
   },
 };
 
@@ -60,6 +75,7 @@ export default function RootLayout({
       className={cn("h-full antialiased", archivo.variable, jakarta.variable)}
     >
       <body className="font-sans min-h-full">
+        <script dangerouslySetInnerHTML={{ __html: INSTALL_CAPTURE }} />
         <SplashScreen />
         <ThemeProvider
           attribute="class"
@@ -68,7 +84,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <QueryProvider>
-            {children}
+            <InstallProvider>{children}</InstallProvider>
             <Toaster position="top-center" theme="dark" richColors />
           </QueryProvider>
           <ServiceWorkerRegister />
