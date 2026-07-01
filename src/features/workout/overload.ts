@@ -15,7 +15,7 @@ const INCREMENT: Record<EquipmentType, number> = {
  */
 export function suggestNextSet(
   lastSets: SetLog[] | null,
-  target: { rep_low: number; rep_high: number },
+  target: { rep_low: number; rep_high: number; sets: number },
   equipment: EquipmentType,
 ): OverloadSuggestion {
   const working = (lastSets ?? []).filter((s) => !s.is_warmup);
@@ -30,7 +30,11 @@ export function suggestNextSet(
 
   const topWeight = Math.max(...working.map((s) => s.weight_kg));
   const lastReps = working[working.length - 1]?.reps ?? target.rep_low;
-  const allHitTop = working.every((s) => s.reps >= target.rep_high);
+  // Hanya naikkan beban kalau SEMUA set target sesi lalu selesai DAN semuanya
+  // mencapai batas atas rep — bukan cuma satu set yang tercatat.
+  const completedAllSets = working.length >= target.sets;
+  const allHitTop =
+    completedAllSets && working.every((s) => s.reps >= target.rep_high);
   const inc = INCREMENT[equipment];
 
   if (allHitTop) {
@@ -46,6 +50,15 @@ export function suggestNextSet(
       weight_kg: next,
       reps: target.rep_low,
       message: `Kamu kuat sesi lalu — naik ke ${next} kg.`,
+    };
+  }
+
+  // Sesi lalu belum tuntas semua set → pertahankan beban dulu, jangan naik.
+  if (!completedAllSets) {
+    return {
+      weight_kg: topWeight,
+      reps: target.rep_high,
+      message: `Tetap ${topWeight} kg dulu — selesaikan semua ${target.sets} set untuk bisa naik.`,
     };
   }
 

@@ -122,6 +122,25 @@ export default function SessionView({ data }: { data: SessionData }) {
 
       {/* exercises */}
       <div style={{ flex: 1, overflowY: "auto", padding: "6px 20px 120px" }} className="no-scrollbar">
+        {data.rest_warning && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              background: "rgba(255,154,92,.1)",
+              border: "1px solid rgba(255,154,92,.28)",
+              borderRadius: 14,
+              padding: "12px 14px",
+              marginBottom: 12,
+            }}
+          >
+            <span style={{ fontSize: 15, lineHeight: 1.2 }}>😴</span>
+            <span style={{ font: "600 12.5px/1.5 var(--font-jakarta), sans-serif", color: "#ff9a5c" }}>
+              {data.rest_warning}
+            </span>
+          </div>
+        )}
         {data.exercises.map((ex) => {
           const s = state[ex.exercise.id];
           return (
