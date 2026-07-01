@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { getActiveProgram } from "@/features/program/action";
 import { getFitnessProfile, getProfile } from "@/features/profile/action";
 import {
@@ -34,9 +35,7 @@ const DAY_INITIALS = ["S", "S", "R", "K", "J", "S", "M"]; // Mon..Sun (Senin..Mi
 
 export async function getHomeData(): Promise<HomeData> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   const [profile, fitness, program] = await Promise.all([
     getProfile(),

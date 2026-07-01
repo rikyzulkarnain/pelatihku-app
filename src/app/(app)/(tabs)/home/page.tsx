@@ -3,7 +3,7 @@ import ThemeToggle from "@/components/common/theme-toggle";
 import { getHomeData } from "@/features/home/action";
 import { formatNumber } from "@/lib/utils";
 import Link from "next/link";
-import StartSessionButton from "./start-session-button";
+import StartSessionButton from "./_components/start-session-button";
 
 export default async function HomePage() {
   const data = await getHomeData();

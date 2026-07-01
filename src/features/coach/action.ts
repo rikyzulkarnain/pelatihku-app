@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { ChatMessage, Conversation } from "@/types/ai";
 import { CoachPersona } from "@/types/profile";
 
@@ -12,9 +13,7 @@ export type CoachInit = {
 
 export async function getOrCreateConversation(): Promise<CoachInit | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
   const { data: profile } = await supabase
@@ -69,9 +68,7 @@ export async function saveTurn(
   modelText: string,
 ): Promise<void> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return;
 
   await supabase.from("chat_messages").insert([
@@ -95,9 +92,7 @@ export async function setConversationPersona(
   persona: CoachPersona,
 ): Promise<void> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return;
 
   await Promise.all([

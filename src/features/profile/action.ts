@@ -1,13 +1,12 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { FitnessProfile, Profile } from "@/types/profile";
 
 export async function getProfile(): Promise<Profile | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
   const { data } = await supabase
@@ -21,9 +20,7 @@ export async function getProfile(): Promise<Profile | null> {
 
 export async function getFitnessProfile(): Promise<FitnessProfile | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
   const { data } = await supabase
@@ -39,9 +36,7 @@ export async function setCoachPersona(
   persona: "tegas" | "suportif" | "santai",
 ): Promise<void> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return;
   await supabase
     .from("profiles")

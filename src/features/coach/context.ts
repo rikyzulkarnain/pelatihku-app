@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { FitnessProfile, Profile } from "@/types/profile";
 import { format } from "date-fns";
 
@@ -16,9 +17,7 @@ export type CoachContext = {
 
 export async function getCoachContext(): Promise<CoachContext> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   const base: CoachContext = {
     profile: null,

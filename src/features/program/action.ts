@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { Exercise, Program, ProgramDay } from "@/types/program";
 import { FitnessProfile } from "@/types/profile";
 import { revalidatePath } from "next/cache";
@@ -8,9 +9,7 @@ import { generateProgram } from "./generator";
 
 export async function generateAndCreateProgram(): Promise<{ error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir, silakan masuk lagi." };
 
   const { data: fitness } = await supabase
@@ -135,9 +134,7 @@ export type ProgramWithDays = Program & {
 
 export async function getActiveProgram(): Promise<ProgramWithDays | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
   const { data: program } = await supabase

@@ -1,5 +1,5 @@
 import { getNutritionData } from "@/features/nutrition/action";
-import NutritionView from "./nutrition-view";
+import NutritionView from "./_components/nutrition-view";
 
 export default async function NutritionPage() {
   const data = await getNutritionData();

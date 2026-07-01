@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { getFitnessProfile, getProfile } from "@/features/profile/action";
 import { BodyweightLog } from "@/types/nutrition";
 import {
@@ -66,9 +67,7 @@ function longestStreakFrom(dates: Date[]): number {
 
 export async function getProgressData(): Promise<ProgressData> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   const empty: ProgressData = {
     name: "Atlet",
@@ -200,9 +199,7 @@ export async function logBodyweight(
   weightKg: number,
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir." };
 
   const { error } = await supabase.from("bodyweight_logs").upsert(
