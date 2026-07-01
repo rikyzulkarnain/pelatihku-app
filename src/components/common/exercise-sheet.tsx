@@ -2,7 +2,7 @@
 
 import { EQUIPMENT_LABEL, MUSCLE_LABEL } from "@/constants/labels";
 import { Exercise } from "@/types/program";
-import { CSSProperties } from "react";
+import { CSSProperties, useRef, useState, type TouchEvent } from "react";
 
 /** Ubah URL YouTube (watch / youtu.be / playlist / shorts) ke bentuk embed. Return null jika bukan YouTube. */
 export function youtubeEmbedUrl(url: string): string | null {
@@ -102,7 +102,6 @@ export function ExerciseVideo({ url }: { url: string | null }) {
   if (isDirectVideo(url)) {
     return (
       <div style={{ ...box, aspectRatio: "16 / 9" }}>
-        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
         <video src={url} controls playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }} />
       </div>
     );
@@ -149,6 +148,26 @@ export function ExerciseVideo({ url }: { url: string | null }) {
 }
 
 export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClose: () => void }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const startY = useRef<number | null>(null);
+  const [dragY, setDragY] = useState(0);
+
+  function onTouchStart(e: TouchEvent<HTMLDivElement>) {
+    // Mulai gestur tutup hanya kalau konten sudah di paling atas.
+    startY.current = (scrollRef.current?.scrollTop ?? 0) <= 0 ? e.touches[0].clientY : null;
+  }
+  function onTouchMove(e: TouchEvent<HTMLDivElement>) {
+    if (startY.current === null) return;
+    const dy = e.touches[0].clientY - startY.current;
+    setDragY(dy > 0 ? dy : 0);
+  }
+  function onTouchEnd() {
+    // Tarik ke bawah cukup jauh → tutup.
+    if (dragY > 110) onClose();
+    else setDragY(0);
+    startY.current = null;
+  }
+
   return (
     <div
       onClick={onClose}
@@ -164,8 +183,13 @@ export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClo
       }}
     >
       <div
+        ref={scrollRef}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
         style={{
+          position: "relative",
           width: "100%",
           maxHeight: "88%",
           overflowY: "auto",
@@ -173,11 +197,43 @@ export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClo
           borderRadius: "28px 28px 0 0",
           borderTop: "1px solid rgba(201,251,60,.18)",
           padding: "10px 22px 30px",
-          animation: "pk-up .3s both",
+          animation: dragY === 0 ? "pk-up .3s both" : undefined,
+          transform: dragY ? `translateY(${dragY}px)` : undefined,
+          transition: dragY ? "none" : "transform .3s ease",
+          touchAction: "pan-y",
         }}
         className="no-scrollbar"
       >
-        <div style={{ width: 42, height: 5, borderRadius: 5, background: "var(--raised2)", margin: "6px auto 18px" }} />
+        {/* tombol tutup */}
+        <button
+          onClick={onClose}
+          aria-label="Tutup"
+          style={{
+            position: "absolute",
+            top: 12,
+            right: 16,
+            zIndex: 2,
+            width: 34,
+            height: 34,
+            borderRadius: 11,
+            background: "var(--surface)",
+            border: "1px solid var(--line2)",
+            color: "var(--dim)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+
+        {/* handle: tarik ke bawah untuk menutup */}
+        <div style={{ width: 42, height: 5, borderRadius: 5, background: "var(--raised2)", margin: "6px auto 4px" }} />
+        <div style={{ textAlign: "center", font: "600 10.5px var(--font-jakarta), sans-serif", color: "var(--faint)", marginBottom: 14 }}>
+          Geser ke bawah untuk menutup
+        </div>
         <ExerciseVideo url={exercise.video_url} />
 
         <h2 style={{ font: "900 24px var(--font-archivo), sans-serif", color: "var(--ink)", margin: "0 0 6px" }}>
