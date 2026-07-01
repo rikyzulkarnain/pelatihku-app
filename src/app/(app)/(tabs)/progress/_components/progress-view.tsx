@@ -133,6 +133,21 @@ export default function ProgressView({ data }: { data: ProgressData }) {
         </button>
       </div>
 
+      {/* support mimin */}
+      <div style={{ marginTop: 14, borderRadius: 20, padding: 18, background: "linear-gradient(140deg,rgba(201,251,60,.12),rgba(201,251,60,.04))", border: "1px solid rgba(201,251,60,.28)" }}>
+        <div style={{ font: "800 15px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+          Dukung mimin 💚
+        </div>
+        <div style={{ font: "500 12.5px/1.5 var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 4, marginBottom: 14 }}>
+          Follow biar app ini terus dikembangkan & tetap gratis. Makasih ya!
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {SOCIAL_LINKS.map((s) => (
+            <SocialLink key={s.label} {...s} />
+          ))}
+        </div>
+      </div>
+
       {/* key stats */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
         <Stat label="Sesi total" value={String(data.totalSessions)} color="var(--ink)" />
@@ -265,6 +280,125 @@ const miniBtn: React.CSSProperties = {
   font: "600 24px var(--font-archivo), sans-serif",
   color: "var(--ink2)",
 };
+
+const SOCIAL_LINKS: {
+  label: string;
+  handle: string;
+  href: string;
+  color: string;
+  bg: string;
+  icon: React.ReactNode;
+}[] = [
+  {
+    label: "Instagram",
+    handle: "@riky_zulkarnain",
+    href: "https://instagram.com/riky_zulkarnain",
+    color: "#e1306c",
+    bg: "rgba(225,48,108,.14)",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="2" width="20" height="20" rx="5" />
+        <circle cx="12" cy="12" r="4" />
+        <circle cx="17.5" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+  {
+    label: "Threads",
+    handle: "@riky_zulkarnain",
+    href: "https://www.threads.net/@riky_zulkarnain",
+    color: "var(--ink)",
+    bg: "var(--raised)",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M16 12v1a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+      </svg>
+    ),
+  },
+  {
+    label: "X",
+    handle: "@rikyzul_",
+    href: "https://x.com/rikyzul_",
+    color: "var(--ink)",
+    bg: "var(--raised)",
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M18.9 1.5h3.68l-8.04 9.19L24 22.5h-7.41l-5.8-7.58-6.64 7.58H.46l8.6-9.83L0 1.5h7.6l5.24 6.93L18.9 1.5zm-1.29 18.8h2.04L6.49 3.6H4.3l13.31 16.7z" />
+      </svg>
+    ),
+  },
+  {
+    label: "YouTube",
+    handle: "@rikyzulkarnain21",
+    href: "https://youtube.com/@rikyzulkarnain21",
+    color: "#ff3b30",
+    bg: "rgba(255,59,48,.14)",
+    icon: (
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+        <path d="M22.5 7.2a2.78 2.78 0 0 0-1.96-1.96C18.8 4.75 12 4.75 12 4.75s-6.8 0-8.54.49A2.78 2.78 0 0 0 1.5 7.2 29 29 0 0 0 1 12a29 29 0 0 0 .5 4.8 2.78 2.78 0 0 0 1.96 1.96c1.74.49 8.54.49 8.54.49s6.8 0 8.54-.49a2.78 2.78 0 0 0 1.96-1.96A29 29 0 0 0 23 12a29 29 0 0 0-.5-4.8z" />
+        <path d="M9.75 15.5v-7l6 3.5-6 3.5z" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+];
+
+function SocialLink({
+  label,
+  handle,
+  href,
+  color,
+  bg,
+  icon,
+}: {
+  label: string;
+  handle: string;
+  href: string;
+  color: string;
+  bg: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "10px 12px",
+        borderRadius: 14,
+        background: "var(--surface)",
+        border: "1px solid var(--line2)",
+        textDecoration: "none",
+        minWidth: 0,
+      }}
+    >
+      <span
+        style={{
+          width: 34,
+          height: 34,
+          flex: "none",
+          borderRadius: 10,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: bg,
+          color,
+        }}
+      >
+        {icon}
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ font: "800 12.5px var(--font-archivo), sans-serif", color: "var(--ink)" }}>{label}</div>
+        <div style={{ font: "500 11px var(--font-jakarta), sans-serif", color: "var(--dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {handle}
+        </div>
+      </div>
+    </a>
+  );
+}
 
 function Stat({
   label,

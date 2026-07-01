@@ -3,13 +3,18 @@
 import { findKnowledge } from "@/features/ai/embedding";
 import { createAI } from "@/features/ai/instance";
 import { Conversation } from "@/types/ai";
-import { CoachPersona } from "@/types/profile";
 import {
   Content,
   HarmBlockThreshold,
   HarmCategory,
 } from "@google/genai";
-import { COACH_MODELS } from "@/constants/coach-constant";
+import {
+  ALL_QUOTA_EXHAUSTED_MESSAGE,
+  COACH_MODELS,
+  CoachModel,
+  DEFAULT_COACH_MODEL,
+  supportsThinking,
+} from "@/constants/coach-constant";
 import { getCoachContext } from "./context";
 import { buildCoachSystemInstruction } from "./prompt";
 
@@ -33,10 +38,17 @@ function isQuotaError(error: unknown): boolean {
   );
 }
 
+type CoachStreamOptions = {
+  model?: CoachModel;
+  thinking?: boolean;
+};
+
 export async function* handleCoachStreaming(
   conversation: Conversation[],
-  persona: CoachPersona,
+  options: CoachStreamOptions = {},
 ) {
+  const { model: preferred = DEFAULT_COACH_MODEL, thinking = false } = options;
+
   const lastUser =
     conversation[conversation.length - 1]?.parts?.[0]?.text ?? "";
 
@@ -49,10 +61,15 @@ export async function* handleCoachStreaming(
     knowledge = [];
   }
 
-  const systemInstruction = buildCoachSystemInstruction(ctx, persona, knowledge);
+  // Coach selalu bernada suportif.
+  const systemInstruction = buildCoachSystemInstruction(
+    ctx,
+    "suportif",
+    knowledge,
+  );
 
   const ai = createAI();
-  const config = {
+  const baseConfig = {
     systemInstruction,
     temperature: 0.6,
     topP: 0.9,
@@ -65,9 +82,15 @@ export async function* handleCoachStreaming(
     ],
   };
 
-  let lastError: unknown;
+  // Model pilihan pengguna dicoba lebih dulu, sisanya jadi fallback saat kuota habis.
+  const models = [preferred, ...COACH_MODELS.filter((m) => m !== preferred)];
 
-  for (const model of COACH_MODELS) {
+  for (const model of models) {
+    // thinkingBudget: 0 mematikan thinking; hanya berlaku untuk model 2.5.
+    const config = supportsThinking(model)
+      ? { ...baseConfig, thinkingConfig: { thinkingBudget: thinking ? -1 : 0 } }
+      : baseConfig;
+
     let emitted = false;
     try {
       const response = await ai.models.generateContentStream({
@@ -84,7 +107,6 @@ export async function* handleCoachStreaming(
       }
       return;
     } catch (error) {
-      lastError = error;
       // Hanya fallback ke model lain kalau kuota habis DAN belum ada teks
       // yang dikirim ke user (biar jawaban tidak terpotong/dobel).
       if (!emitted && isQuotaError(error)) {
@@ -94,8 +116,6 @@ export async function* handleCoachStreaming(
     }
   }
 
-  throw (
-    lastError ??
-    new Error("Semua model Gemini free sedang kehabisan kuota. Coba lagi nanti.")
-  );
+  // Sampai sini artinya semua model kena kuota (429) tanpa sempat menjawab.
+  throw new Error(ALL_QUOTA_EXHAUSTED_MESSAGE);
 }

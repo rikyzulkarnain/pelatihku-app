@@ -6,10 +6,29 @@ import { logFood, NutritionData } from "@/features/nutrition/action";
 import { formatNumber } from "@/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
+import NutritionChat from "./nutrition-chat";
+
+type DayLog = {
+  food_name: string;
+  protein_g: number;
+  carb_g: number;
+  fat_g: number;
+  calories: number;
+};
 
 export default function NutritionView({ data }: { data: NutritionData }) {
   const [proteinNow, setProteinNow] = useState(data.proteinNow);
   const [adding, setAdding] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [logs, setLogs] = useState<DayLog[]>(() =>
+    data.logs.map((l) => ({
+      food_name: l.food_name,
+      protein_g: Number(l.protein_g) || 0,
+      carb_g: Number(l.carb_g) || 0,
+      fat_g: Number(l.fat_g) || 0,
+      calories: Number(l.calories) || 0,
+    })),
+  );
 
   const pct = data.proteinTarget
     ? Math.min(100, Math.round((proteinNow / data.proteinTarget) * 100))
@@ -30,6 +49,10 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       return;
     }
     setProteinNow((p) => p + food.protein_g);
+    setLogs((prev) => [
+      { food_name: food.name, protein_g: food.protein_g, carb_g: 0, fat_g: 0, calories: food.calories },
+      ...prev,
+    ]);
     toast.success(`+${food.protein_g}g protein dari ${food.name}`);
   }
 
@@ -46,6 +69,50 @@ export default function NutritionView({ data }: { data: NutritionData }) {
           Target harianmu
         </h1>
       </div>
+
+      {/* catat via chat / suara */}
+      <button
+        onClick={() => setChatOpen(true)}
+        style={{
+          width: "100%",
+          textAlign: "left",
+          borderRadius: 18,
+          padding: "14px 16px",
+          marginBottom: 14,
+          background: "linear-gradient(120deg,rgba(201,251,60,.14),rgba(201,251,60,.05))",
+          border: "1px solid rgba(201,251,60,.28)",
+          display: "flex",
+          alignItems: "center",
+          gap: 13,
+        }}
+      >
+        <div
+          style={{
+            width: 42,
+            height: 42,
+            flex: "none",
+            borderRadius: 13,
+            background: "var(--lime)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#10130a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="2" width="6" height="12" rx="3" />
+            <path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" />
+          </svg>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ font: "800 14.5px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+            Catat makan pakai chat / suara
+          </div>
+          <div style={{ font: "500 12px var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 2 }}>
+            “Nasi, ayam 1 potong, bayam, tempe” — makro dihitung otomatis
+          </div>
+        </div>
+        <span style={{ fontSize: 20, color: "var(--acc)" }}>›</span>
+      </button>
 
       {/* calorie ring */}
       <div
@@ -127,6 +194,52 @@ export default function NutritionView({ data }: { data: NutritionData }) {
         </div>
       </div>
 
+      {/* today's food history */}
+      <div style={{ marginTop: 20, display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ font: "800 11px var(--font-archivo), sans-serif", letterSpacing: ".14em", textTransform: "uppercase", color: "var(--dim)" }}>
+          Sudah dimakan hari ini
+        </span>
+        {logs.length > 0 && (
+          <span style={{ font: "700 12px var(--font-archivo), sans-serif", color: "var(--acc)" }}>
+            {logs.length} item
+          </span>
+        )}
+      </div>
+      {logs.length === 0 ? (
+        <div style={{ borderRadius: 16, padding: "18px 16px", background: "var(--surface)", border: "1px dashed var(--line2)", textAlign: "center", font: "500 13px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+          Belum ada catatan. Ketuk “Catat makan pakai chat / suara” di atas, atau pilih dari daftar di bawah.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {logs.map((l, i) => (
+            <div
+              key={i}
+              style={{
+                borderRadius: 14,
+                padding: "11px 14px",
+                background: "var(--surface)",
+                border: "1px solid var(--line2)",
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {l.food_name}
+                </div>
+                <div style={{ font: "500 11.5px var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 2 }}>
+                  {Math.round(l.calories)} kkal · {formatNumber(l.carb_g)}g karbo · {formatNumber(l.fat_g)}g lemak
+                </div>
+              </div>
+              <span style={{ font: "800 15px var(--font-archivo), sans-serif", color: "var(--acc)", whiteSpace: "nowrap" }}>
+                {formatNumber(l.protein_g)}g
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* protein sources */}
       <div style={{ marginTop: 20, font: "800 11px var(--font-archivo), sans-serif", letterSpacing: ".14em", textTransform: "uppercase", color: "var(--dim)", marginBottom: 10 }}>
         Protein murah & lokal — ketuk untuk catat
@@ -169,6 +282,31 @@ export default function NutritionView({ data }: { data: NutritionData }) {
         Hasil 70–80% ditentukan total kalori, protein, & tidur — bukan suplemen. Susu/whey
         hanya pelengkap. Angka ini estimasi, bukan nasihat medis.
       </div>
+
+      {chatOpen && (
+        <NutritionChat
+          onClose={() => setChatOpen(false)}
+          onLogged={(res) => {
+            const t = res.totals;
+            if (typeof res.proteinNow === "number") {
+              setProteinNow(res.proteinNow);
+            } else if (t) {
+              setProteinNow((p) => p + t.protein_g);
+            }
+            if (res.items?.length) {
+              const added = res.items.map((it) => ({
+                food_name: it.name,
+                protein_g: it.protein_g,
+                carb_g: it.carb_g,
+                fat_g: it.fat_g,
+                calories: Math.round(it.calories),
+              }));
+              setLogs((prev) => [...added, ...prev]);
+            }
+            if (t && t.protein_g > 0) toast.success(`+${t.protein_g}g protein tercatat`);
+          }}
+        />
+      )}
     </div>
   );
 }
