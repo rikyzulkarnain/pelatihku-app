@@ -35,10 +35,14 @@ export async function generateAndCreateProgram(): Promise<{ error?: string }> {
     {
       goal: fitness.goal,
       gender: fitness.gender ?? "rahasia",
+      age: fitness.age,
+      weight_kg: fitness.weight_kg,
+      height_cm: fitness.height_cm,
       experience_level: fitness.experience_level ?? "pemula",
       training_frequency: fitness.training_frequency,
       equipment: fitness.equipment,
       injuries: fitness.injuries ?? [],
+      target_deadline: fitness.target_deadline,
     },
     exercises,
   );

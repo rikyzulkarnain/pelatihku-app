@@ -197,6 +197,6 @@ values
 ## 3. Setelah migrate
 
 1. Tambahkan baris file baru ke tabel di [`README.md`](README.md).
-2. Jalankan `embedExercises()` (`src/features/coach/embedding.ts`) sekali untuk
-   backfill `embedding` (butuh `GOOGLE_GEN_AI_API_KEY`). Row lama yang sudah
-   ter-embed otomatis dilewati.
+2. Backfill `embedding` (butuh `GOOGLE_GEN_AI_API_KEY`) — jalankan dari root:
+   `node scripts/backfill-embeddings.mjs` (atau POST `/api/embeddings` dengan
+   session login). Row lama yang sudah ter-embed otomatis dilewati.

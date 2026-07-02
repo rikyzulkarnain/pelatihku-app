@@ -23,7 +23,15 @@ editor (or `supabase db` CLI). Each file is idempotent enough to run once on a c
 ## After migrating: backfill embeddings
 
 The seeded `exercises` and `knowledge_base` rows have `embedding = null`. Generate them
-once (requires `GOOGLE_GEN_AI_API_KEY`) via the **POST `/api/embeddings`** endpoint:
+once (requires `GOOGLE_GEN_AI_API_KEY`).
+
+**Cara termudah — script lokal** (pakai `SUPABASE_SERVICE_ROLE_KEY`, tanpa login):
+
+```bash
+node scripts/backfill-embeddings.mjs
+```
+
+**Alternatif — POST `/api/embeddings`** endpoint:
 
 1. Login ke app (perlu authenticated session).
 2. Buka browser console atau kirim POST request:

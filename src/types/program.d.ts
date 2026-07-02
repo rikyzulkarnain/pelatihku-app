@@ -1,4 +1,4 @@
-import { Equipment, ExperienceLevel, Goal } from "./profile";
+import { Equipment, ExperienceLevel, Gender, Goal } from "./profile";
 
 export type MuscleGroup =
   | "legs"
@@ -132,5 +132,11 @@ export type GeneratedProgram = {
     equipment: Equipment;
     frequency: number;
     injuries: string[];
+    age: number | null;
+    bmi: number | null;
+    gender: Gender;
+    target_deadline: string | null;
+    low_impact: boolean;
+    glute_emphasis: boolean;
   };
 };

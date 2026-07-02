@@ -8,6 +8,7 @@ import {
   Exercise,
   EquipmentType,
   GeneratedDay,
+  GeneratedExercise,
   GeneratedProgram,
   MovementPattern,
   SplitType,
@@ -16,24 +17,62 @@ import {
 type GeneratorInput = {
   goal: Goal;
   gender: Gender;
+  age: number | null;
+  weight_kg: number | null;
+  height_cm: number | null;
   experience_level: ExperienceLevel;
   training_frequency: number;
   equipment: Equipment;
   injuries: string[];
+  target_deadline: string | null;
 };
 
-const GOAL_PARAMS: Record<
-  Goal,
-  { rep_low: number; rep_high: number; set_low: number; set_high: number; cardio: boolean }
-> = {
-  turun_lemak: { rep_low: 8, rep_high: 15, set_low: 3, set_high: 4, cardio: true },
-  naik_massa: { rep_low: 6, rep_high: 12, set_low: 3, set_high: 5, cardio: false },
-  toning: { rep_low: 10, rep_high: 15, set_low: 3, set_high: 3, cardio: false },
-  strength: { rep_low: 3, rep_high: 6, set_low: 4, set_high: 6, cardio: false },
-  kebugaran_umum: { rep_low: 10, rep_high: 12, set_low: 2, set_high: 3, cardio: false },
+// ── Parameter latihan per goal (NSCA/ACSM) ──────────────────────
+// rep/set range per goal; rest dibedakan compound vs isolation karena
+// compound butuh pemulihan lebih lama; cardio_minutes = durasi finisher.
+type GoalParams = {
+  rep_low: number;
+  rep_high: number;
+  set_low: number;
+  set_high: number;
+  cardio: boolean;
+  rest_compound: number;
+  rest_isolation: number;
+  cardio_minutes: [number, number];
+};
+
+const GOAL_PARAMS: Record<Goal, GoalParams> = {
+  // Fat loss: rep menengah-tinggi, istirahat pendek (densitas), kardio wajib.
+  turun_lemak: {
+    rep_low: 8, rep_high: 15, set_low: 3, set_high: 4, cardio: true,
+    rest_compound: 90, rest_isolation: 60, cardio_minutes: [15, 20],
+  },
+  // Hypertrophy: 6-12 rep, volume tinggi, istirahat 90-120s compound.
+  naik_massa: {
+    rep_low: 6, rep_high: 12, set_low: 3, set_high: 5, cardio: false,
+    rest_compound: 120, rest_isolation: 75, cardio_minutes: [10, 15],
+  },
+  // Toning: rep tinggi beban sedang + kardio ringan untuk definisi.
+  toning: {
+    rep_low: 10, rep_high: 15, set_low: 3, set_high: 4, cardio: true,
+    rest_compound: 75, rest_isolation: 60, cardio_minutes: [10, 15],
+  },
+  // Strength: rep rendah beban berat, istirahat panjang penuh (3 menit).
+  strength: {
+    rep_low: 3, rep_high: 6, set_low: 4, set_high: 6, cardio: false,
+    rest_compound: 180, rest_isolation: 90, cardio_minutes: [10, 15],
+  },
+  // Kebugaran umum: volume moderat + kardio (ACSM: 150 menit/minggu).
+  kebugaran_umum: {
+    rep_low: 10, rep_high: 12, set_low: 2, set_high: 3, cardio: true,
+    rest_compound: 90, rest_isolation: 60, cardio_minutes: [15, 20],
+  },
   // Kesuburan: volume moderat (hindari overtraining yang menekan hormon),
   // rentang rep menengah + kardio ringan-sedang untuk sirkulasi & berat sehat.
-  kesuburan: { rep_low: 8, rep_high: 12, set_low: 2, set_high: 3, cardio: true },
+  kesuburan: {
+    rep_low: 8, rep_high: 12, set_low: 2, set_high: 3, cardio: true,
+    rest_compound: 90, rest_isolation: 60, cardio_minutes: [20, 30],
+  },
 };
 
 const GOAL_LABEL: Record<Goal, string> = {
@@ -109,6 +148,7 @@ function buildDaySpecs(
   goal: Goal,
   gender: Gender,
   frequency: number,
+  level: ExperienceLevel,
 ): {
   split: SplitType;
   days: DaySpec[];
@@ -127,15 +167,31 @@ function buildDaySpecs(
       })),
     };
   }
+  const upperLower: DaySpec[] = [
+    { label: "Upper A", focus: "Dada, punggung, bahu, lengan", templateKey: "Upper" },
+    { label: "Lower A", focus: "Kaki & core", templateKey: "Lower" },
+    { label: "Upper B", focus: "Dada, punggung, bahu, lengan", templateKey: "Upper" },
+    { label: "Lower B", focus: "Kaki & core", templateKey: "Lower" },
+  ];
   if (frequency === 4) {
+    return { split: "upper_lower", days: upperLower };
+  }
+  // Pemula 5-6 hari: tetap Upper/Lower (recovery lebih aman daripada PPL,
+  // sesuai rekomendasi trainer untuk frekuensi tinggi tanpa pengalaman).
+  if (level === "pemula") {
     return {
       split: "upper_lower",
-      days: [
-        { label: "Upper A", focus: "Dada, punggung, bahu, lengan", templateKey: "Upper" },
-        { label: "Lower A", focus: "Kaki & core", templateKey: "Lower" },
-        { label: "Upper B", focus: "Dada, punggung, bahu, lengan", templateKey: "Upper" },
-        { label: "Lower B", focus: "Kaki & core", templateKey: "Lower" },
-      ],
+      days:
+        frequency === 5
+          ? [
+              ...upperLower,
+              { label: "Full Body", focus: "Seluruh tubuh", templateKey: "Full Body A" },
+            ]
+          : [
+              ...upperLower,
+              { label: "Upper C", focus: "Dada, punggung, bahu, lengan", templateKey: "Upper" },
+              { label: "Lower C", focus: "Kaki & core", templateKey: "Lower" },
+            ],
     };
   }
   // 5-6 days -> PPL
@@ -173,31 +229,68 @@ const EQUIPMENT_TIER: Record<EquipmentType, number> = {
   cardio: 1,
 };
 
+const LEVEL_ORDER: Record<ExperienceLevel, number> = {
+  pemula: 1,
+  menengah: 2,
+  mahir: 3,
+};
+
+// Gerakan high-impact (lompatan) — dihindari untuk BMI tinggi, usia 55+,
+// keluhan lutut/pergelangan kaki, dan goal kesuburan.
+function isHighImpact(e: Exercise): boolean {
+  return (
+    e.slug.includes("jump") ||
+    e.slug.includes("burpee") ||
+    e.slug.includes("hop") ||
+    e.slug.includes("plyo")
+  );
+}
+
+type PickContext = {
+  allowed: Set<EquipmentType>;
+  injuries: string[];
+  level: ExperienceLevel;
+  lowImpact: boolean;
+  preferSlugs: string[];
+};
+
 function pickExercise(
   pattern: MovementPattern,
   pool: Exercise[],
-  allowed: Set<EquipmentType>,
-  injuries: string[],
-  level: ExperienceLevel,
+  ctx: PickContext,
   used: Set<string>,
 ): Exercise | null {
   let candidates = pool.filter(
     (e) =>
       e.movement_pattern === pattern &&
-      allowed.has(e.equipment) &&
+      ctx.allowed.has(e.equipment) &&
       !used.has(e.slug) &&
-      !e.injury_cautions.some((c) => injuries.includes(c)),
+      !e.injury_cautions.some((c) => ctx.injuries.includes(c)) &&
+      !(ctx.lowImpact && isHighImpact(e)),
   );
 
   if (candidates.length === 0) return null;
 
-  // Beginners prefer pemula-level movements; fall back if none.
-  if (level === "pemula") {
+  // Utamakan gerakan yang sesuai/di bawah level user (pemula tidak diberi
+  // gerakan mahir); fallback ke semua kandidat kalau tidak ada.
+  const atOrBelow = candidates.filter(
+    (e) => LEVEL_ORDER[e.level] <= LEVEL_ORDER[ctx.level],
+  );
+  if (atOrBelow.length > 0) candidates = atOrBelow;
+
+  // Pemula: prioritaskan gerakan level pemula dulu (belajar pola dasar).
+  if (ctx.level === "pemula") {
     const beginnerFriendly = candidates.filter((e) => e.level === "pemula");
     if (beginnerFriendly.length > 0) candidates = beginnerFriendly;
   }
 
   candidates.sort((a, b) => {
+    // Gerakan prioritas goal (mis. pelvic floor untuk kesuburan) menang dulu.
+    const prefA = ctx.preferSlugs.indexOf(a.slug);
+    const prefB = ctx.preferSlugs.indexOf(b.slug);
+    if (prefA !== prefB) {
+      return (prefA === -1 ? 99 : prefA) - (prefB === -1 ? 99 : prefB);
+    }
     const tier = EQUIPMENT_TIER[b.equipment] - EQUIPMENT_TIER[a.equipment];
     if (tier !== 0) return tier;
     return a.slug.localeCompare(b.slug);
@@ -206,44 +299,144 @@ function pickExercise(
   return candidates[0];
 }
 
+function computeBMI(
+  weight_kg: number | null,
+  height_cm: number | null,
+): number | null {
+  if (!weight_kg || !height_cm) return null;
+  const h = height_cm / 100;
+  return Math.round((weight_kg / (h * h)) * 10) / 10;
+}
+
 export function generateProgram(
   input: GeneratorInput,
   exercises: Exercise[],
 ): GeneratedProgram {
   const params = GOAL_PARAMS[input.goal];
+  const level = input.experience_level;
+  const isBeginner = level === "pemula";
+
+  const bmi = computeBMI(input.weight_kg, input.height_cm);
+  const age = input.age;
+  const isSenior = age !== null && age >= 55;
+  const isYouth = age !== null && age < 18;
+  // Low-impact: lindungi sendi (BMI ≥ 30 / usia 55+ / keluhan kaki) dan
+  // hindari intensitas kejut untuk persiapan kehamilan.
+  const lowImpact =
+    (bmi !== null && bmi >= 30) ||
+    isSenior ||
+    input.goal === "kesuburan" ||
+    input.injuries.includes("lutut") ||
+    input.injuries.includes("pergelangan_kaki");
+
   const { split, days: daySpecs } = buildDaySpecs(
     input.goal,
     input.gender,
     input.training_frequency,
+    level,
   );
   const allowed = allowedEquipment(input.equipment);
-  const isBeginner = input.experience_level === "pemula";
 
-  const targetSets = isBeginner
+  // Volume set per level; usia 55+ ditahan di volume moderat (recovery).
+  let targetSets = isBeginner
     ? params.set_low
-    : Math.round((params.set_low + params.set_high) / 2);
-  const maxPerDay = isBeginner ? 4 : 6;
+    : level === "mahir"
+      ? params.set_high
+      : Math.round((params.set_low + params.set_high) / 2);
+  if (isSenior) {
+    targetSets = Math.min(
+      targetSets,
+      Math.round((params.set_low + params.set_high) / 2),
+    );
+  }
 
-  const cardio = exercises.find((e) => e.movement_pattern === "cardio") ?? null;
+  const maxPerDay = isBeginner ? 4 : level === "mahir" && !isSenior ? 6 : 5;
+
+  // Istirahat ekstra untuk pemula (belajar teknik) & usia 55+ (recovery).
+  const restBonus = (isBeginner ? 30 : 0) + (isSenior ? 30 : 0);
+
+  // Glute emphasis untuk cewek dengan goal bentuk tubuh: tambah pola hinge
+  // (hip thrust/RDL) di hari kaki & full body.
+  const gluteEmphasis =
+    input.gender === "cewek" &&
+    (input.goal === "toning" || input.goal === "turun_lemak");
+
+  // Durasi kardio dinaikkan bila target waktu ketat (1-3 bulan).
+  const deadlineBoost =
+    input.target_deadline === "1m" ? 10 : input.target_deadline === "3m" ? 5 : 0;
+  const cardioLow = params.cardio_minutes[0] + deadlineBoost;
+  const cardioHigh = params.cardio_minutes[1] + deadlineBoost;
+
+  const pickCtx: PickContext = {
+    allowed,
+    injuries: input.injuries,
+    level,
+    lowImpact,
+    // Persiapan kehamilan: otot dasar panggul & stabilitas core diutamakan.
+    preferSlugs:
+      input.goal === "kesuburan"
+        ? ["pelvic-floor-kegel", "bird-dog", "dead-bug", "cat-cow"]
+        : [],
+  };
+
+  const cardioPool = exercises.filter(
+    (e) => e.movement_pattern === "cardio" && allowed.has(e.equipment),
+  );
+  // Low-impact pilih jalan cepat/sepeda, bukan lompat tali.
+  const cardio =
+    (lowImpact
+      ? cardioPool.find((e) => !isHighImpact(e))
+      : cardioPool.find((e) => !e.injury_cautions.some((c) => input.injuries.includes(c)))) ??
+    cardioPool[0] ??
+    null;
 
   const days: GeneratedDay[] = daySpecs.map((spec, dayIdx) => {
-    const patterns = TEMPLATES[spec.templateKey] ?? [];
+    const patterns = [...(TEMPLATES[spec.templateKey] ?? [])];
+    const isLegDay = /Lower|Legs|Full Body/.test(spec.templateKey);
+    if (gluteEmphasis && isLegDay && !patterns.includes("hinge")) {
+      patterns.splice(Math.min(2, patterns.length), 0, "hinge");
+    }
+
     const used = new Set<string>();
-    const generated = [];
+    const generated: GeneratedExercise[] = [];
     let order = 0;
 
     for (const pattern of patterns) {
       if (generated.length >= maxPerDay) break;
-      const ex = pickExercise(
-        pattern,
-        exercises,
-        allowed,
-        input.injuries,
-        input.experience_level,
-        used,
-      );
+      // Kardio ditangani sebagai finisher berbasis menit di bawah, bukan
+      // sebagai latihan ber-rep di tengah sesi.
+      if (pattern === "cardio") continue;
+      const ex = pickExercise(pattern, exercises, pickCtx, used);
       if (!ex) continue;
       used.add(ex.slug);
+
+      // Isolation/core tetap rep menengah walau goal strength — beban
+      // maksimal hanya untuk compound besar (praktik standar coaching).
+      const isAccessory = !ex.is_compound || pattern === "core";
+      let repLow = params.rep_low;
+      let repHigh = params.rep_high;
+      if (input.goal === "strength" && isAccessory) {
+        repLow = 8;
+        repHigh = 12;
+      }
+      // Remaja: hindari beban maksimal rep 3-5, geser ke 6-10 (panduan
+      // youth strength training).
+      if (isYouth && input.goal === "strength" && repLow < 6) {
+        repLow = 6;
+        repHigh = 10;
+      }
+
+      const notes: string[] = [];
+      if (order === 0) {
+        notes.push("Awali pemanasan 5-10 menit (kardio ringan + gerak dinamis)");
+      }
+      if (isBeginner && ex.is_compound) {
+        notes.push("Fokus teknik & rentang gerak penuh");
+      }
+      if (isSenior && ex.is_compound) {
+        notes.push("Naikkan beban bertahap, prioritaskan kontrol");
+      }
+
       generated.push({
         exercise_id: ex.id,
         slug: ex.slug,
@@ -251,17 +444,18 @@ export function generateProgram(
         muscle_group: ex.muscle_group,
         equipment: ex.equipment,
         order_index: order++,
-        target_sets: targetSets,
-        target_rep_low: params.rep_low,
-        target_rep_high: params.rep_high,
-        rest_seconds: isBeginner ? 120 : 90,
-        notes:
-          isBeginner && ex.is_compound ? "Fokus teknik & rentang gerak penuh" : null,
+        target_sets: isAccessory ? Math.min(targetSets, 3) : targetSets,
+        target_rep_low: repLow,
+        target_rep_high: repHigh,
+        rest_seconds:
+          (ex.is_compound ? params.rest_compound : params.rest_isolation) +
+          restBonus,
+        notes: notes.length > 0 ? notes.join(". ") : null,
       });
     }
 
-    // Cardio finisher for fat-loss goal.
-    if (params.cardio && cardio && allowed.has(cardio.equipment)) {
+    // Cardio finisher (fat loss / toning / kebugaran / kesuburan).
+    if (params.cardio && cardio) {
       generated.push({
         exercise_id: cardio.id,
         slug: cardio.slug,
@@ -270,10 +464,12 @@ export function generateProgram(
         equipment: cardio.equipment,
         order_index: order++,
         target_sets: 1,
-        target_rep_low: 10,
-        target_rep_high: 15,
+        target_rep_low: cardioLow,
+        target_rep_high: cardioHigh,
         rest_seconds: 60,
-        notes: "Penutup: kardio intensitas sedang (menit)",
+        notes: lowImpact
+          ? "Penutup: kardio low-impact intensitas ringan-sedang (menit)"
+          : "Penutup: kardio intensitas sedang (menit)",
       });
     }
 
@@ -298,10 +494,16 @@ export function generateProgram(
     days,
     generated_meta: {
       goal: input.goal,
-      level: input.experience_level,
+      level,
       equipment: input.equipment,
       frequency: input.training_frequency,
       injuries: input.injuries,
+      age,
+      bmi,
+      gender: input.gender,
+      target_deadline: input.target_deadline,
+      low_impact: lowImpact,
+      glute_emphasis: gluteEmphasis,
     },
   };
 }
