@@ -34,13 +34,47 @@ function replaceVoicePlaceholder(msgs: ChatMsg[], replacement?: string): ChatMsg
   return next;
 }
 
-function fileToBase64(file: File): Promise<string> {
+function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onloadend = () => resolve((reader.result as string).split(",")[1] ?? "");
+    reader.onloadend = () => resolve(reader.result as string);
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+// Foto dari kamera HP bisa 3-8MB; base64 menambah ~33% sehingga menembus batas
+// body Server Action (Vercel membatasi request ~4.5MB). Kecilkan dulu di browser
+// lewat canvas ke sisi terpanjang 1280px + JPEG kualitas 0.82. Selain aman dari
+// batas ukuran, ini juga mempercepat pemrosesan Gemini. Kualitas untuk mengenali
+// makanan/struk tetap terjaga.
+async function compressImage(
+  file: File,
+): Promise<{ mimeType: string; base64: string }> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = reject;
+    el.src = dataUrl;
+  });
+
+  const MAX = 1280;
+  const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    // Fallback: kirim file asli jika canvas tak tersedia.
+    return { mimeType: file.type, base64: dataUrl.split(",")[1] ?? "" };
+  }
+  ctx.drawImage(img, 0, 0, w, h);
+  const out = canvas.toDataURL("image/jpeg", 0.82);
+  return { mimeType: "image/jpeg", base64: out.split(",")[1] ?? "" };
 }
 
 export default function NutritionChat({
@@ -130,9 +164,9 @@ export default function NutritionChat({
     const caption = input.trim();
     setInput("");
     try {
-      const base64 = await fileToBase64(file);
+      const image = await compressImage(file);
       run(
-        { image: { mimeType: file.type, base64 }, text: caption || undefined },
+        { image, text: caption || undefined },
         caption ? `📷 ${caption}` : "📷 Foto makanan",
       );
     } catch {
