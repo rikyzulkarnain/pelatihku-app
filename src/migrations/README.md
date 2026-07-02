@@ -19,6 +19,7 @@ editor (or `supabase db` CLI). Each file is idempotent enough to run once on a c
 | 12 | `012-seed-fertility.sql` | Library demo videos + fertility/pelvic-floor movements (goal `kesuburan`) |
 | 13 | `013-nutrition-macros.sql` | Add `carb_g` + `fat_g` to `nutrition_logs` (chat/voice meal logging) |
 | 14 | `014-seed-exercises-extra.sql` | Seed 13 extra exercises (squat/hinge/core/leg varian + video URL) |
+| 15 | `015-seed-exercises-extra.sql` | Seed 37 extra exercises (strength/push/pull/isolasi/cardio + kesuburan mobilitas) |
 
 ## After migrating: backfill embeddings
 

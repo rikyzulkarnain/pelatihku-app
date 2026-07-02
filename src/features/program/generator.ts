@@ -214,11 +214,12 @@ function buildDaySpecs(
 }
 
 function allowedEquipment(equipment: Equipment): Set<EquipmentType> {
+  // Equipment "cardio" = mesin kardio (rowing/sepeda statis/elliptical),
+  // hanya tersedia di gym lengkap.
   if (equipment === "gym_lengkap")
     return new Set(["barbell", "dumbbell", "machine", "bodyweight", "cardio"]);
-  if (equipment === "dumbbell_saja")
-    return new Set(["dumbbell", "bodyweight", "cardio"]);
-  return new Set(["bodyweight", "cardio"]);
+  if (equipment === "dumbbell_saja") return new Set(["dumbbell", "bodyweight"]);
+  return new Set(["bodyweight"]);
 }
 
 const EQUIPMENT_TIER: Record<EquipmentType, number> = {
@@ -242,7 +243,8 @@ function isHighImpact(e: Exercise): boolean {
     e.slug.includes("jump") ||
     e.slug.includes("burpee") ||
     e.slug.includes("hop") ||
-    e.slug.includes("plyo")
+    e.slug.includes("plyo") ||
+    e.slug.includes("climber")
   );
 }
 
@@ -259,6 +261,7 @@ function pickExercise(
   pool: Exercise[],
   ctx: PickContext,
   used: Set<string>,
+  weekAvoid: Set<string> = new Set(),
 ): Exercise | null {
   let candidates = pool.filter(
     (e) =>
@@ -283,6 +286,12 @@ function pickExercise(
     const beginnerFriendly = candidates.filter((e) => e.level === "pemula");
     if (beginnerFriendly.length > 0) candidates = beginnerFriendly;
   }
+
+  // Rotasi antar-hari SETELAH filter level: variasikan gerakan yang belum
+  // dipakai minggu ini, tapi lebih baik mengulang gerakan yang pas levelnya
+  // daripada naik ke gerakan yang lebih sulit.
+  const notYetThisWeek = candidates.filter((e) => !weekAvoid.has(e.slug));
+  if (notYetThisWeek.length > 0) candidates = notYetThisWeek;
 
   candidates.sort((a, b) => {
     // Gerakan prioritas goal (mis. pelvic floor untuk kesuburan) menang dulu.
@@ -350,7 +359,15 @@ export function generateProgram(
     );
   }
 
-  const maxPerDay = isBeginner ? 4 : level === "mahir" && !isSenior ? 6 : 5;
+  // Kesuburan longgar 1 slot: template-nya memuat 2 gerakan core ringan
+  // (pelvic floor + napas/stabilitas) yang keduanya harus masuk.
+  const maxPerDay = isBeginner
+    ? input.goal === "kesuburan"
+      ? 5
+      : 4
+    : level === "mahir" && !isSenior
+      ? 6
+      : 5;
 
   // Istirahat ekstra untuk pemula (belajar teknik) & usia 55+ (recovery).
   const restBonus = (isBeginner ? 30 : 0) + (isSenior ? 30 : 0);
@@ -372,23 +389,42 @@ export function generateProgram(
     injuries: input.injuries,
     level,
     lowImpact,
-    // Persiapan kehamilan: otot dasar panggul & stabilitas core diutamakan.
+    // Persiapan kehamilan: otot dasar panggul, napas diafragma & stabilitas
+    // core diutamakan — dirotasi antar-hari lewat weekAvoid di pickExercise.
     preferSlugs:
       input.goal === "kesuburan"
-        ? ["pelvic-floor-kegel", "bird-dog", "dead-bug", "cat-cow"]
+        ? [
+            "pelvic-floor-kegel",
+            "diaphragmatic-breathing",
+            "bird-dog",
+            "dead-bug",
+            "glute-bridge-march",
+            "cat-cow",
+            "world-greatest-stretch",
+          ]
         : [],
   };
 
-  const cardioPool = exercises.filter(
-    (e) => e.movement_pattern === "cardio" && allowed.has(e.equipment),
+  // Kandidat kardio yang aman untuk user ini (low-impact & cedera dihormati),
+  // dirotasi antar-hari supaya tidak monoton (jalan cepat / sepeda / rowing).
+  let cardioChoices = exercises
+    .filter(
+      (e) =>
+        e.movement_pattern === "cardio" &&
+        allowed.has(e.equipment) &&
+        !(lowImpact && isHighImpact(e)) &&
+        !e.injury_cautions.some((c) => input.injuries.includes(c)),
+    )
+    .sort((a, b) => a.slug.localeCompare(b.slug));
+  // Pemula tidak diberi kardio level menengah/mahir (mis. burpee).
+  const cardioAtLevel = cardioChoices.filter(
+    (e) => LEVEL_ORDER[e.level] <= LEVEL_ORDER[level],
   );
-  // Low-impact pilih jalan cepat/sepeda, bukan lompat tali.
-  const cardio =
-    (lowImpact
-      ? cardioPool.find((e) => !isHighImpact(e))
-      : cardioPool.find((e) => !e.injury_cautions.some((c) => input.injuries.includes(c)))) ??
-    cardioPool[0] ??
-    null;
+  if (cardioAtLevel.length > 0) cardioChoices = cardioAtLevel;
+
+  // Slug yang sudah dipakai di hari-hari sebelumnya minggu ini — dipakai
+  // pickExercise agar tiap hari memakai variasi berbeda selama pool cukup.
+  const weekUsed = new Set<string>();
 
   const days: GeneratedDay[] = daySpecs.map((spec, dayIdx) => {
     const patterns = [...(TEMPLATES[spec.templateKey] ?? [])];
@@ -406,9 +442,10 @@ export function generateProgram(
       // Kardio ditangani sebagai finisher berbasis menit di bawah, bukan
       // sebagai latihan ber-rep di tengah sesi.
       if (pattern === "cardio") continue;
-      const ex = pickExercise(pattern, exercises, pickCtx, used);
+      const ex = pickExercise(pattern, exercises, pickCtx, used, weekUsed);
       if (!ex) continue;
       used.add(ex.slug);
+      weekUsed.add(ex.slug);
 
       // Isolation/core tetap rep menengah walau goal strength — beban
       // maksimal hanya untuk compound besar (praktik standar coaching).
@@ -454,7 +491,12 @@ export function generateProgram(
       });
     }
 
-    // Cardio finisher (fat loss / toning / kebugaran / kesuburan).
+    // Cardio finisher (fat loss / toning / kebugaran / kesuburan),
+    // bergilir antar-hari dari kandidat yang aman.
+    const cardio =
+      cardioChoices.length > 0
+        ? cardioChoices[dayIdx % cardioChoices.length]
+        : null;
     if (params.cardio && cardio) {
       generated.push({
         exercise_id: cardio.id,
