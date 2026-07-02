@@ -1,8 +1,12 @@
-import { getActiveProgram } from "@/features/program/action";
+import { getActiveProgram, getProgressionStatus } from "@/features/program/action";
 import DayCard from "./_components/day-card";
+import ProgressionCard from "./_components/progression-card";
 
 export default async function ProgramPage() {
-  const program = await getActiveProgram();
+  const [program, progression] = await Promise.all([
+    getActiveProgram(),
+    getProgressionStatus(),
+  ]);
 
   if (!program) {
     return (
@@ -41,6 +45,13 @@ export default async function ProgramPage() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 18 }}>
+        {progression?.decision.action === "promote" && (
+          <ProgressionCard
+            nextLevel={progression.decision.next_level}
+            reason={progression.decision.reason}
+          />
+        )}
+
         {program.days.map((d) => (
           <DayCard
             key={d.id}
@@ -65,6 +76,9 @@ export default async function ProgramPage() {
         >
           Sisanya hari istirahat. Program menyesuaikan otomatis tiap 4–6 minggu seiring
           kamu makin kuat.
+          {progression?.decision.action === "wait" && (
+            <> {progression.decision.reason}</>
+          )}
         </div>
       </div>
     </div>

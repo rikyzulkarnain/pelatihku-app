@@ -3,9 +3,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { Exercise, Program, ProgramDay } from "@/types/program";
-import { FitnessProfile } from "@/types/profile";
+import { ExperienceLevel, FitnessProfile } from "@/types/profile";
 import { revalidatePath } from "next/cache";
 import { generateProgram } from "./generator";
+import {
+  evaluateProgression,
+  ProgressionSession,
+  ProgressionStatus,
+} from "./progression";
 
 export async function generateAndCreateProgram(): Promise<{ error?: string }> {
   const supabase = await createClient();
@@ -169,4 +174,88 @@ export async function getActiveProgram(): Promise<ProgramWithDays | null> {
   })) as ProgramWithDays["days"];
 
   return { ...program, days: normalizedDays };
+}
+
+// ── Auto-adjust 4–6 minggu ──────────────────────────────────────
+// Mekanisme "program menyesuaikan otomatis": dievaluasi tiap kali halaman
+// Program dibuka (read-only), lalu diterapkan lewat applyProgression().
+
+async function loadProgressionContext(): Promise<{
+  status: ProgressionStatus;
+  fitness: FitnessProfile;
+} | null> {
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const { data: program } = await supabase
+    .from("programs")
+    .select("id, created_at, frequency_per_week")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<Pick<Program, "id" | "created_at" | "frequency_per_week">>();
+
+  if (!program) return null;
+
+  const { data: fitness } = await supabase
+    .from("fitness_profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .single<FitnessProfile>();
+
+  if (!fitness?.experience_level) return null;
+
+  // Hanya sesi selesai milik program aktif ini (program lama tidak dihitung).
+  const { data: sessions } = await supabase
+    .from("workout_sessions")
+    .select("completed_at, total_volume")
+    .eq("user_id", user.id)
+    .eq("program_id", program.id)
+    .eq("status", "completed")
+    .order("completed_at", { ascending: true })
+    .returns<ProgressionSession[]>();
+
+  const status = evaluateProgression({
+    level: fitness.experience_level,
+    program_created_at: program.created_at,
+    frequency_per_week: program.frequency_per_week,
+    sessions: sessions ?? [],
+  });
+
+  return { status, fitness };
+}
+
+export async function getProgressionStatus(): Promise<ProgressionStatus | null> {
+  const ctx = await loadProgressionContext();
+  return ctx?.status ?? null;
+}
+
+export async function applyProgression(): Promise<{
+  error?: string;
+  new_level?: ExperienceLevel;
+}> {
+  // Evaluasi ulang di server (jangan percaya klaim klien).
+  const ctx = await loadProgressionContext();
+  if (!ctx || ctx.status.decision.action !== "promote") {
+    return { error: "Program belum memenuhi syarat penyesuaian." };
+  }
+  const nextLevel = ctx.status.decision.next_level;
+
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: "Sesi berakhir, silakan masuk lagi." };
+
+  const { error } = await supabase
+    .from("fitness_profiles")
+    .update({ experience_level: nextLevel })
+    .eq("user_id", user.id);
+  if (error) return { error: error.message };
+
+  // Regenerasi program dengan level baru (generator membaca ulang profil).
+  const res = await generateAndCreateProgram();
+  if (res.error) return { error: res.error };
+
+  return { new_level: nextLevel };
 }
