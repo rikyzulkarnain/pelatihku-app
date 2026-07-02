@@ -2,13 +2,14 @@
 
 import { FOOD_EXAMPLES } from "@/constants/nutrition-constant";
 import { GOAL_LABEL } from "@/constants/labels";
-import { logFood, NutritionData } from "@/features/nutrition/action";
+import { deleteFood, logFood, NutritionData } from "@/features/nutrition/action";
 import { formatNumber } from "@/lib/utils";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import NutritionChat from "./nutrition-chat";
 
 type DayLog = {
+  id: string;
   food_name: string;
   protein_g: number;
   carb_g: number;
@@ -16,19 +17,39 @@ type DayLog = {
   calories: number;
 };
 
-type Totals = { protein: number; carb: number; fat: number; calories: number };
+// Beberapa entri makanan yang identik (nama + makro sama) digabung jadi satu
+// baris berjumlah ×N. `ids` menyimpan id tiap entri asli agar bisa
+// ditambah/dikurangi/dihapus satuan.
+type GroupedLog = DayLog & { ids: string[] };
+
+// Batas jumlah baris sebelum daftar bisa diciutkan agar tak terlalu panjang.
+const COLLAPSE_THRESHOLD = 4;
+
+function groupLogs(logs: DayLog[]): GroupedLog[] {
+  const groups: GroupedLog[] = [];
+  const byKey = new Map<string, GroupedLog>();
+  for (const l of logs) {
+    const key = `${l.food_name}|${l.protein_g}|${l.carb_g}|${l.fat_g}|${l.calories}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.ids.push(l.id);
+    } else {
+      const g: GroupedLog = { ...l, ids: [l.id] };
+      byKey.set(key, g);
+      groups.push(g);
+    }
+  }
+  return groups;
+}
 
 export default function NutritionView({ data }: { data: NutritionData }) {
-  const [totals, setTotals] = useState<Totals>({
-    protein: data.proteinNow,
-    carb: data.carbNow,
-    fat: data.fatNow,
-    calories: data.calorieNow,
-  });
   const [adding, setAdding] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [logs, setLogs] = useState<DayLog[]>(() =>
     data.logs.map((l) => ({
+      id: l.id,
       food_name: l.food_name,
       protein_g: Number(l.protein_g) || 0,
       carb_g: Number(l.carb_g) || 0,
@@ -36,6 +57,24 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       calories: Number(l.calories) || 0,
     })),
   );
+
+  const totals = useMemo(
+    () =>
+      logs.reduce(
+        (t, l) => ({
+          protein: t.protein + l.protein_g,
+          carb: t.carb + l.carb_g,
+          fat: t.fat + l.fat_g,
+          calories: t.calories + l.calories,
+        }),
+        { protein: 0, carb: 0, fat: 0, calories: 0 },
+      ),
+    [logs],
+  );
+
+  const groups = useMemo(() => groupLogs(logs), [logs]);
+  const visibleGroups = expanded ? groups : groups.slice(0, COLLAPSE_THRESHOLD);
+  const hiddenCount = groups.length - visibleGroups.length;
 
   const circumference = 2 * Math.PI * 50;
   const kcalPct = data.calorieTarget
@@ -51,20 +90,64 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       calories: food.calories,
     });
     setAdding(null);
+    if (res.error || !res.id) {
+      toast.error(res.error ?? "Gagal menyimpan.");
+      return;
+    }
+    setLogs((prev) => [
+      { id: res.id!, food_name: food.name, protein_g: food.protein_g, carb_g: 0, fat_g: 0, calories: food.calories },
+      ...prev,
+    ]);
+    toast.success(`+${food.protein_g}g protein dari ${food.name}`);
+  }
+
+  // Tambah satu satuan lagi ke grup identik (fitur "dikalikan").
+  async function addUnit(g: GroupedLog) {
+    setBusyKey(g.food_name + g.ids.length);
+    const res = await logFood({
+      food_name: g.food_name,
+      protein_g: g.protein_g,
+      carb_g: g.carb_g,
+      fat_g: g.fat_g,
+      calories: g.calories,
+    });
+    setBusyKey(null);
+    if (res.error || !res.id) {
+      toast.error(res.error ?? "Gagal menyimpan.");
+      return;
+    }
+    setLogs((prev) => [
+      { id: res.id!, food_name: g.food_name, protein_g: g.protein_g, carb_g: g.carb_g, fat_g: g.fat_g, calories: g.calories },
+      ...prev,
+    ]);
+  }
+
+  // Hapus satu satuan dari grup (kurangi ×N).
+  async function removeUnit(g: GroupedLog) {
+    const id = g.ids[g.ids.length - 1];
+    setBusyKey(g.food_name + g.ids.length);
+    const res = await deleteFood(id);
+    setBusyKey(null);
     if (res.error) {
       toast.error(res.error);
       return;
     }
-    setTotals((t) => ({
-      ...t,
-      protein: t.protein + food.protein_g,
-      calories: t.calories + food.calories,
-    }));
-    setLogs((prev) => [
-      { food_name: food.name, protein_g: food.protein_g, carb_g: 0, fat_g: 0, calories: food.calories },
-      ...prev,
-    ]);
-    toast.success(`+${food.protein_g}g protein dari ${food.name}`);
+    setLogs((prev) => prev.filter((l) => l.id !== id));
+  }
+
+  // Hapus seluruh grup (semua satuan) sekaligus.
+  async function removeGroup(g: GroupedLog) {
+    setBusyKey(g.food_name + g.ids.length);
+    const results = await Promise.all(g.ids.map((id) => deleteFood(id)));
+    setBusyKey(null);
+    const failed = results.find((r) => r.error);
+    if (failed) {
+      toast.error(failed.error!);
+      return;
+    }
+    const gone = new Set(g.ids);
+    setLogs((prev) => prev.filter((l) => !gone.has(l.id)));
+    toast.success(`${g.food_name} dihapus`);
   }
 
   return (
@@ -198,44 +281,88 @@ export default function NutritionView({ data }: { data: NutritionData }) {
         <span style={{ font: "800 11px var(--font-archivo), sans-serif", letterSpacing: ".14em", textTransform: "uppercase", color: "var(--dim)" }}>
           Sudah dimakan hari ini
         </span>
-        {logs.length > 0 && (
+        {groups.length > 0 && (
           <span style={{ font: "700 12px var(--font-archivo), sans-serif", color: "var(--acc)" }}>
             {logs.length} item
           </span>
         )}
       </div>
-      {logs.length === 0 ? (
+      {groups.length === 0 ? (
         <div style={{ borderRadius: 16, padding: "18px 16px", background: "var(--surface)", border: "1px dashed var(--line2)", textAlign: "center", font: "500 13px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
           Belum ada catatan. Ketuk “Catat makan pakai chat / suara” di atas, atau pilih dari daftar di bawah.
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {logs.map((l, i) => (
-            <div
-              key={i}
-              style={{
-                borderRadius: 14,
-                padding: "11px 14px",
-                background: "var(--surface)",
-                border: "1px solid var(--line2)",
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {l.food_name}
+          {visibleGroups.map((g) => {
+            const qty = g.ids.length;
+            const busy = busyKey === g.food_name + qty;
+            return (
+              <div
+                key={g.ids[0]}
+                style={{
+                  borderRadius: 14,
+                  padding: "11px 14px",
+                  background: "var(--surface)",
+                  border: "1px solid var(--line2)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  opacity: busy ? 0.55 : 1,
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <span style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {g.food_name}
+                    </span>
+                    {qty > 1 && (
+                      <span style={{ flex: "none", font: "800 11px var(--font-archivo), sans-serif", color: "#10130a", background: "var(--lime)", borderRadius: 7, padding: "2px 6px" }}>
+                        ×{qty}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ font: "500 11.5px var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 2 }}>
+                    {Math.round(g.calories * qty)} kkal · {formatNumber(g.carb_g * qty)}g karbo · {formatNumber(g.fat_g * qty)}g lemak
+                  </div>
                 </div>
-                <div style={{ font: "500 11.5px var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 2 }}>
-                  {Math.round(l.calories)} kkal · {formatNumber(l.carb_g)}g karbo · {formatNumber(l.fat_g)}g lemak
+
+                <span style={{ font: "800 15px var(--font-archivo), sans-serif", color: "var(--acc)", whiteSpace: "nowrap" }}>
+                  {formatNumber(g.protein_g * qty)}g
+                </span>
+
+                {/* stepper ± untuk mengalikan porsi */}
+                <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "none" }}>
+                  <StepBtn label="Kurangi" disabled={busy} onClick={() => removeUnit(g)}>
+                    –
+                  </StepBtn>
+                  <StepBtn label="Tambah" disabled={busy} onClick={() => addUnit(g)}>
+                    +
+                  </StepBtn>
                 </div>
+
+                {/* hapus seluruh entri */}
+                <button
+                  onClick={() => removeGroup(g)}
+                  disabled={busy}
+                  aria-label={`Hapus ${g.food_name}`}
+                  style={{ flex: "none", width: 30, height: 30, borderRadius: 9, background: "transparent", border: "1px solid var(--line2)", color: "var(--dim)", display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                  </svg>
+                </button>
               </div>
-              <span style={{ font: "800 15px var(--font-archivo), sans-serif", color: "var(--acc)", whiteSpace: "nowrap" }}>
-                {formatNumber(l.protein_g)}g
-              </span>
-            </div>
-          ))}
+            );
+          })}
+
+          {(hiddenCount > 0 || expanded) && groups.length > COLLAPSE_THRESHOLD && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              style={{ borderRadius: 12, padding: "9px 12px", background: "transparent", border: "1px dashed var(--line2)", color: "var(--acc)", font: "700 12.5px var(--font-archivo), sans-serif", textAlign: "center" }}
+            >
+              {expanded ? "Ciutkan" : `Lihat semua (${hiddenCount} lagi)`}
+            </button>
+          )}
         </div>
       )}
 
@@ -286,17 +413,10 @@ export default function NutritionView({ data }: { data: NutritionData }) {
         <NutritionChat
           onClose={() => setChatOpen(false)}
           onResult={(res) => {
-            if (res.totals) {
-              setTotals({
-                protein: res.totals.protein_g,
-                carb: res.totals.carb_g,
-                fat: res.totals.fat_g,
-                calories: res.totals.calories,
-              });
-            }
             if (res.logs) {
               setLogs(
                 res.logs.map((l) => ({
+                  id: l.id,
                   food_name: l.food_name,
                   protein_g: l.protein_g,
                   carb_g: l.carb_g,
@@ -310,6 +430,41 @@ export default function NutritionView({ data }: { data: NutritionData }) {
         />
       )}
     </div>
+  );
+}
+
+function StepBtn({
+  children,
+  label,
+  disabled,
+  onClick,
+}: {
+  children: React.ReactNode;
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        background: "var(--raised)",
+        border: "1px solid var(--line2)",
+        color: "var(--ink)",
+        font: "800 17px var(--font-archivo), sans-serif",
+        lineHeight: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

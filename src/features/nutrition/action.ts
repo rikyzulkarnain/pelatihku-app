@@ -109,19 +109,44 @@ export async function getNutritionData(): Promise<NutritionData> {
 export async function logFood(input: {
   food_name: string;
   protein_g: number;
+  carb_g?: number;
+  fat_g?: number;
   calories: number;
-}): Promise<{ error?: string }> {
+}): Promise<{ error?: string; id?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir." };
 
-  const { error } = await supabase.from("nutrition_logs").insert({
-    user_id: user.id,
-    log_date: format(new Date(), "yyyy-MM-dd"),
-    food_name: input.food_name,
-    protein_g: input.protein_g,
-    calories: input.calories,
-  });
+  const { data, error } = await supabase
+    .from("nutrition_logs")
+    .insert({
+      user_id: user.id,
+      log_date: format(new Date(), "yyyy-MM-dd"),
+      food_name: input.food_name,
+      protein_g: input.protein_g,
+      carb_g: input.carb_g ?? 0,
+      fat_g: input.fat_g ?? 0,
+      calories: input.calories,
+    })
+    .select("id")
+    .single();
+
+  if (error) return { error: error.message };
+  revalidatePath("/nutrition");
+  revalidatePath("/home");
+  return { id: data.id as string };
+}
+
+export async function deleteFood(id: string): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: "Sesi berakhir." };
+
+  const { error } = await supabase
+    .from("nutrition_logs")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id);
 
   if (error) return { error: error.message };
   revalidatePath("/nutrition");
