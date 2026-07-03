@@ -22,7 +22,7 @@ export async function getOrCreateConversation(): Promise<CoachInit | null> {
     .eq("id", user.id)
     .single();
 
-  const defaultPersona = (profile?.coach_persona as CoachPersona) ?? "suportif";
+  const defaultPersona = (profile?.coach_persona as CoachPersona) ?? "tegas";
 
   let { data: conversation } = await supabase
     .from("conversations")
@@ -156,7 +156,7 @@ export async function createConversation(): Promise<CoachInit | null> {
     .eq("id", user.id)
     .single();
 
-  const persona = (profile?.coach_persona as CoachPersona) ?? "suportif";
+  const persona = (profile?.coach_persona as CoachPersona) ?? "tegas";
 
   const { data: created } = await supabase
     .from("conversations")

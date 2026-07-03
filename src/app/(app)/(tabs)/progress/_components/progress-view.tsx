@@ -6,6 +6,7 @@ import {
   logBodyweight,
   ProgressData,
   resetGoalAndProgress,
+  updateBodyProfile,
 } from "@/features/progress/action";
 import { GOAL_LABEL, LEVEL_LABEL } from "@/constants/labels";
 import { formatNumber } from "@/lib/utils";
@@ -29,6 +30,23 @@ export default function ProgressView({ data }: { data: ProgressData }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [editingBody, setEditingBody] = useState(false);
+  const [ageDraft, setAgeDraft] = useState<number>(data.age ?? 25);
+  const [heightDraft, setHeightDraft] = useState<number>(data.heightCm ?? 165);
+  const [savingBody, setSavingBody] = useState(false);
+
+  async function saveBody() {
+    setSavingBody(true);
+    const res = await updateBodyProfile({ age: ageDraft, heightCm: heightDraft });
+    setSavingBody(false);
+    if (res.error) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success("Umur & tinggi diperbarui. Target gizi dihitung ulang.");
+    setEditingBody(false);
+    router.refresh();
+  }
 
   async function reset() {
     setResetting(true);
@@ -182,8 +200,34 @@ export default function ProgressView({ data }: { data: ProgressData }) {
 
       {/* physical stats */}
       <div style={{ marginTop: 14, borderRadius: 20, padding: 18, background: "var(--surface)", border: "1px solid var(--line2)" }}>
-        <div style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)", marginBottom: 14 }}>
-          Statistik tubuh
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <span style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+            Statistik tubuh
+          </span>
+          <button
+            onClick={() => {
+              setAgeDraft(data.age ?? 25);
+              setHeightDraft(data.heightCm ?? 165);
+              setEditingBody((v) => !v);
+            }}
+            aria-label={editingBody ? "Tutup edit" : "Ubah umur & tinggi"}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 11px",
+              borderRadius: 10,
+              background: editingBody ? "var(--raised)" : "rgba(201,251,60,.1)",
+              border: `1px solid ${editingBody ? "var(--line2)" : "rgba(201,251,60,.25)"}`,
+              color: editingBody ? "var(--dim)" : "var(--acc)",
+              font: "700 12px var(--font-archivo), sans-serif",
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
+            </svg>
+            {editingBody ? "Batal" : "Ubah"}
+          </button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
           <Mini label="Berat" value={data.latestWeight !== null ? String(data.latestWeight) : "–"} unit="kg" />
@@ -191,6 +235,43 @@ export default function ProgressView({ data }: { data: ProgressData }) {
           <Mini label="BMI" value={data.bmi !== null ? String(data.bmi) : "–"} unit="" />
           <Mini label="Usia" value={data.age !== null ? String(data.age) : "–"} unit="th" />
         </div>
+
+        {editingBody && (
+          <div style={{ marginTop: 16, borderTop: "1px solid var(--line2)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+            <EditRow
+              label="Usia"
+              unit="th"
+              value={ageDraft}
+              onDec={() => setAgeDraft((v) => Math.max(10, v - 1))}
+              onInc={() => setAgeDraft((v) => Math.min(100, v + 1))}
+            />
+            <EditRow
+              label="Tinggi"
+              unit="cm"
+              value={heightDraft}
+              onDec={() => setHeightDraft((v) => Math.max(100, v - 1))}
+              onInc={() => setHeightDraft((v) => Math.min(250, v + 1))}
+            />
+            <button
+              onClick={saveBody}
+              disabled={savingBody}
+              style={{
+                width: "100%",
+                padding: 13,
+                borderRadius: 14,
+                background: "var(--lime)",
+                color: "#10130a",
+                font: "800 14px var(--font-archivo), sans-serif",
+                opacity: savingBody ? 0.7 : 1,
+              }}
+            >
+              {savingBody ? "Menyimpan…" : "Simpan umur & tinggi"}
+            </button>
+            <div style={{ font: "500 11.5px/1.5 var(--font-jakarta), sans-serif", color: "var(--dim)", textAlign: "center" }}>
+              Target kalori & protein harian ikut dihitung ulang otomatis.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* targets */}
@@ -520,6 +601,44 @@ function Stat({
     </div>
   );
 }
+
+function EditRow({
+  label,
+  unit,
+  value,
+  onDec,
+  onInc,
+}: {
+  label: string;
+  unit: string;
+  value: number;
+  onDec: () => void;
+  onInc: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <span style={{ flex: 1, font: "600 13px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+        {label}
+      </span>
+      <button onClick={onDec} aria-label={`Kurangi ${label}`} style={editBtn}>−</button>
+      <div style={{ minWidth: 74, textAlign: "center" }}>
+        <span style={{ font: "900 22px var(--font-archivo), sans-serif", color: "var(--ink)" }}>{value}</span>
+        <span style={{ font: "700 12px var(--font-archivo), sans-serif", color: "var(--dim)" }}> {unit}</span>
+      </div>
+      <button onClick={onInc} aria-label={`Tambah ${label}`} style={editBtn}>+</button>
+    </div>
+  );
+}
+
+const editBtn: React.CSSProperties = {
+  width: 40,
+  height: 40,
+  borderRadius: 12,
+  background: "var(--raised)",
+  border: "1px solid var(--line2)",
+  font: "600 20px var(--font-archivo), sans-serif",
+  color: "var(--ink2)",
+};
 
 function Mini({ label, value, unit }: { label: string; value: string; unit: string }) {
   return (

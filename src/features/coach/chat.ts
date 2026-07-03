@@ -61,10 +61,11 @@ export async function* handleCoachStreaming(
     knowledge = [];
   }
 
-  // Coach selalu bernada suportif.
+  // Coach bernada TEGAS: fokus pada suksesnya latihan pengguna,
+  // menegur langsung kebiasaan yang merusak target.
   const systemInstruction = buildCoachSystemInstruction(
     ctx,
-    "suportif",
+    "tegas",
     knowledge,
   );
 

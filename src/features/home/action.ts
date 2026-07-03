@@ -19,8 +19,13 @@ export type HomeData = {
   weekGoal: number;
   weekDots: { day: string; done: boolean; today: boolean }[];
   totalVolume: number;
+  sessionsTotal: number;
   proteinNow: number;
   proteinTarget: number;
+  caloriesNow: number;
+  calorieTarget: number;
+  /** Otot yang dilatih < 48 jam terakhir (masih masa pemulihan). */
+  recovery: { muscle: string; hoursAgo: number }[];
   today: {
     programId: string;
     dayId: string;
@@ -50,8 +55,12 @@ export async function getHomeData(): Promise<HomeData> {
     weekGoal: program?.frequency_per_week ?? 3,
     weekDots: [],
     totalVolume: 0,
+    sessionsTotal: 0,
     proteinNow: 0,
     proteinTarget: fitness?.daily_protein_target_g ?? 0,
+    caloriesNow: 0,
+    calorieTarget: fitness?.daily_calorie_target ?? 0,
+    recovery: [],
     today: null,
   };
 
@@ -97,15 +106,46 @@ export async function getHomeData(): Promise<HomeData> {
   }));
   const weekDone = weekDots.filter((d) => d.done).length;
 
-  // Today's protein.
-  const { data: foods } = await supabase
-    .from("nutrition_logs")
-    .select("protein_g")
-    .eq("user_id", user.id)
-    .eq("log_date", format(new Date(), "yyyy-MM-dd"));
+  // Asupan hari ini + status pemulihan otot 48 jam terakhir (paralel).
+  const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const [{ data: foods }, { data: recentSets }] = await Promise.all([
+    supabase
+      .from("nutrition_logs")
+      .select("protein_g, calories")
+      .eq("user_id", user.id)
+      .eq("log_date", format(new Date(), "yyyy-MM-dd")),
+    supabase
+      .from("set_logs")
+      .select("created_at, exercise:exercises!inner(muscle_group, category)")
+      .eq("user_id", user.id)
+      .gte("created_at", cutoff48h)
+      .order("created_at", { ascending: false })
+      .limit(300)
+      .returns<
+        { created_at: string; exercise: { muscle_group: string; category: string } }[]
+      >(),
+  ]);
   const proteinNow = Math.round(
     (foods ?? []).reduce((acc, f) => acc + Number(f.protein_g ?? 0), 0),
   );
+  const caloriesNow = Math.round(
+    (foods ?? []).reduce((acc, f) => acc + Number(f.calories ?? 0), 0),
+  );
+
+  // Otot per grup: kapan terakhir dilatih (kardio tidak dihitung melatih otot).
+  const recoveryMap = new Map<string, number>();
+  for (const r of recentSets ?? []) {
+    if (r.exercise?.category === "cardio") continue;
+    const muscle = r.exercise?.muscle_group;
+    if (!muscle || recoveryMap.has(muscle)) continue;
+    recoveryMap.set(
+      muscle,
+      Math.round((Date.now() - new Date(r.created_at).getTime()) / 3_600_000),
+    );
+  }
+  const recovery = Array.from(recoveryMap.entries())
+    .map(([muscle, hoursAgo]) => ({ muscle, hoursAgo }))
+    .sort((a, b) => a.hoursAgo - b.hoursAgo);
 
   // Today's workout = next day in rotation.
   let today: HomeData["today"] = null;
@@ -130,8 +170,12 @@ export async function getHomeData(): Promise<HomeData> {
     weekGoal: program?.frequency_per_week ?? 3,
     weekDots,
     totalVolume: Math.round(totalVolume),
+    sessionsTotal: completedCount,
     proteinNow,
     proteinTarget: fitness?.daily_protein_target_g ?? 0,
+    caloriesNow,
+    calorieTarget: fitness?.daily_calorie_target ?? 0,
+    recovery,
     today,
   };
 }

@@ -21,6 +21,8 @@ export type NutritionData = {
   fatNow: number;
   calorieNow: number;
   logs: NutritionLog[];
+  /** Sesi latihan terakhir yang selesai — untuk evaluasi asupan yang tegas. */
+  lastSession: { label: string; volume: number } | null;
 };
 
 function bmiCategory(bmi: number): string {
@@ -48,10 +50,11 @@ export async function getNutritionData(): Promise<NutritionData> {
     fatNow: 0,
     calorieNow: 0,
     logs: [],
+    lastSession: null,
   };
   if (!user) return empty;
 
-  const [{ data: fitness }, { data: target }, { data: logs }] = await Promise.all([
+  const [{ data: fitness }, { data: target }, { data: logs }, { data: lastSess }] = await Promise.all([
     supabase.from("fitness_profiles").select("*").eq("user_id", user.id).single<FitnessProfile>(),
     supabase
       .from("nutrition_targets")
@@ -67,6 +70,14 @@ export async function getNutritionData(): Promise<NutritionData> {
       .eq("log_date", format(new Date(), "yyyy-MM-dd"))
       .order("created_at", { ascending: false })
       .returns<NutritionLog[]>(),
+    supabase
+      .from("workout_sessions")
+      .select("total_volume, program_day:program_days(label)")
+      .eq("user_id", user.id)
+      .eq("status", "completed")
+      .order("completed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const calorieTarget = target?.calorie_target ?? fitness?.daily_calorie_target ?? 0;
@@ -103,6 +114,14 @@ export async function getNutritionData(): Promise<NutritionData> {
     fatNow: sumLog("fat_g"),
     calorieNow: sumLog("calories"),
     logs: logs ?? [],
+    lastSession: lastSess
+      ? {
+          label:
+            (lastSess.program_day as unknown as { label?: string } | null)
+              ?.label ?? "latihan",
+          volume: Math.round(Number(lastSess.total_volume ?? 0)),
+        }
+      : null,
   };
 }
 

@@ -1,5 +1,6 @@
 import GreetingText from "@/components/common/greeting-text";
 import ThemeToggle from "@/components/common/theme-toggle";
+import { MUSCLE_LABEL } from "@/constants/labels";
 import { getHomeData } from "@/features/home/action";
 import { formatNumber } from "@/lib/utils";
 import Link from "next/link";
@@ -170,13 +171,65 @@ export default async function HomePage() {
         </div>
       </div>
 
+      {/* status pemulihan otot (48 jam terakhir) */}
+      <div
+        style={{
+          marginTop: 16,
+          borderRadius: 20,
+          padding: 18,
+          background: "var(--surface)",
+          border: "1px solid var(--line2)",
+        }}
+      >
+        <div style={{ font: "700 15px var(--font-archivo), sans-serif", color: "var(--ink)", marginBottom: 12 }}>
+          Pemulihan otot
+        </div>
+        {data.recovery.length === 0 ? (
+          <div style={{ font: "500 13px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+            Semua otot sudah pulih — kondisi terbaik untuk latihan hari ini 💪
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {data.recovery.map((r) => {
+              const remaining = Math.max(0, 48 - r.hoursAgo);
+              const ready = remaining <= 0;
+              return (
+                <span
+                  key={r.muscle}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "7px 12px",
+                    borderRadius: 999,
+                    font: "700 12px var(--font-archivo), sans-serif",
+                    background: ready ? "rgba(201,251,60,.1)" : "rgba(255,154,92,.1)",
+                    border: `1px solid ${ready ? "rgba(201,251,60,.25)" : "rgba(255,154,92,.26)"}`,
+                    color: ready ? "var(--acc)" : "#ff9a5c",
+                  }}
+                >
+                  {ready ? "✅" : "⏳"} {MUSCLE_LABEL[r.muscle] ?? r.muscle}
+                  {!ready && <span style={{ fontWeight: 600, opacity: 0.85 }}>· pulih ~{remaining}j lagi</span>}
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* quick stats */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 16 }}>
         <StatCard label="Total terangkat" value={formatNumber(data.totalVolume)} unit=" kg" />
+        <StatCard label="Sesi selesai" value={String(data.sessionsTotal)} unit=" sesi" />
         <StatCard
           label="Protein hari ini"
           value={String(data.proteinNow)}
           unit={` / ${data.proteinTarget}g`}
+        />
+        <StatCard
+          label="Kalori hari ini"
+          value={formatNumber(data.caloriesNow)}
+          unit={` / ${formatNumber(data.calorieTarget)}`}
         />
       </div>
 
@@ -189,16 +242,6 @@ export default async function HomePage() {
           icon={
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style={{ stroke: "var(--acc)" }} strokeWidth="2" strokeLinecap="round">
               <path d="M6.5 6.5l11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M6.5 17.5l-4 4M17.5 6.5l4-4" />
-            </svg>
-          }
-        />
-        <ShortcutCard
-          href="/coach"
-          title="AI Coach"
-          subtitle="Tanya apa saja"
-          icon={
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style={{ stroke: "var(--acc)" }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.9-.9L3 20l1.3-3.1A8.38 8.38 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5z" />
             </svg>
           }
         />

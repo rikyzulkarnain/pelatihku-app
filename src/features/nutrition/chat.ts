@@ -42,6 +42,8 @@ export type NutritionChatResult = {
   reply?: string;
   logs?: LoggedFood[];
   totals?: MacroTotals;
+  /** Entri yang BARU dicatat/diubah pada giliran ini (bukan total harian). */
+  items?: LoggedFood[];
   /** true jika AI melakukan perubahan (tambah/ubah/hapus) pada catatan. */
   changed?: boolean;
   /** Transkrip teks dari input suara (untuk ditampilkan sebagai pesan user). */
@@ -132,7 +134,8 @@ Aturan:
 - Foto makanan: identifikasi SEMUA makanan di piring DAN HITUNG jumlah tiap item (mis. 3 nugget, 2 telur, 4 bakso). Kalikan makronya sesuai jumlah yang benar-benar terlihat — jangan berhenti di 1 potong kalau ada beberapa. Foto struk: ambil item makanan/minuman beserta jumlahnya.
 - Sebut jumlah/porsi di food_name bila lebih dari satu (mis. "Nugget ayam 3 pcs", "Nasi putih porsi banyak") agar mudah dicek pengguna.
 - Jika input tidak menyebut/menampilkan makanan sama sekali, JANGAN panggil function apa pun; balas ramah minta pengguna menyebutkan makanannya.
-- Setelah aksi, balas 1-2 kalimat Bahasa Indonesia yang ramah, merangkum apa yang dicatat/diubah/dihapus. Boleh 1 emoji. Jangan pakai tabel atau markdown rumit.
+- Setelah aksi, balas 1-2 kalimat Bahasa Indonesia, merangkum apa yang dicatat/diubah/dihapus. Boleh 1 emoji. Jangan pakai tabel atau markdown rumit.
+- TEGAS soal makanan tidak sehat: jika yang dicatat tergolong gorengan berminyak, minuman manis/bergula, junk food, atau mie instan, tambahkan SATU kalimat teguran langsung setelah mencatat — sebutkan dampaknya ke tujuan latihan pengguna dan beri satu alternatif lebih sehat. Jangan basa-basi, tapi jangan menghina.
 
 Catatan makanan hari ini (pakai id untuk update_food / delete_food):
 ${list}`;
@@ -376,6 +379,24 @@ export async function nutritionChat(input: {
   const logs = changed ? await fetchToday(supabase, user.id, logDate) : before;
   const totals = sumTotals(logs);
 
+  // Item yang baru ditambah/diubah pada giliran ini — dibandingkan dengan
+  // snapshot sebelum chat, supaya UI bisa menampilkan makro input SAAT INI
+  // (bukan total keseluruhan harian).
+  const beforeById = new Map(before.map((b) => [b.id, b]));
+  const items = changed
+    ? logs.filter((l) => {
+        const b = beforeById.get(l.id);
+        if (!b) return true; // entri baru
+        return (
+          b.food_name !== l.food_name ||
+          b.protein_g !== l.protein_g ||
+          b.carb_g !== l.carb_g ||
+          b.fat_g !== l.fat_g ||
+          b.calories !== l.calories
+        ); // entri yang dikoreksi
+      })
+    : [];
+
   if (changed) {
     revalidatePath("/nutrition");
     revalidatePath("/home");
@@ -385,6 +406,7 @@ export async function nutritionChat(input: {
     reply: reply.trim() || (changed ? "Oke, sudah aku catat ✅" : "Boleh, ceritakan makananmu ya."),
     logs,
     totals,
+    items,
     changed,
     transcript,
   };

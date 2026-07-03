@@ -3,6 +3,8 @@
 import { FOOD_EXAMPLES } from "@/constants/nutrition-constant";
 import { GOAL_LABEL } from "@/constants/labels";
 import { deleteFood, logFood, NutritionData } from "@/features/nutrition/action";
+import { evaluateIntake } from "@/features/nutrition/evaluate";
+import { useDebounce } from "@/hooks/use-debounce";
 import { formatNumber } from "@/lib/utils";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -47,6 +49,8 @@ export default function NutritionView({ data }: { data: NutritionData }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
   const [logs, setLogs] = useState<DayLog[]>(() =>
     data.logs.map((l) => ({
       id: l.id,
@@ -76,6 +80,31 @@ export default function NutritionView({ data }: { data: NutritionData }) {
   const visibleGroups = expanded ? groups : groups.slice(0, COLLAPSE_THRESHOLD);
   const hiddenCount = groups.length - visibleGroups.length;
 
+  const filteredFoods = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    if (!q) return FOOD_EXAMPLES;
+    return FOOD_EXAMPLES.filter((f) => f.name.toLowerCase().includes(q));
+  }, [debouncedSearch]);
+
+  // Evaluasi asupan yang tegas — deterministik, langsung dari data hari ini.
+  const verdicts = useMemo(
+    () =>
+      evaluateIntake({
+        calories: totals.calories,
+        protein: totals.protein,
+        carb: totals.carb,
+        fat: totals.fat,
+        calorieTarget: data.calorieTarget,
+        proteinTarget: data.proteinTarget,
+        carbTarget: data.carbTarget,
+        fatTarget: data.fatTarget,
+        goal: data.goal,
+        foodNames: logs.map((l) => l.food_name),
+        lastSession: data.lastSession,
+      }),
+    [totals, logs, data],
+  );
+
   const circumference = 2 * Math.PI * 50;
   const kcalPct = data.calorieTarget
     ? Math.min(1, totals.calories / data.calorieTarget)
@@ -87,6 +116,8 @@ export default function NutritionView({ data }: { data: NutritionData }) {
     const res = await logFood({
       food_name: food.name,
       protein_g: food.protein_g,
+      carb_g: food.carb_g,
+      fat_g: food.fat_g,
       calories: food.calories,
     });
     setAdding(null);
@@ -95,7 +126,14 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       return;
     }
     setLogs((prev) => [
-      { id: res.id!, food_name: food.name, protein_g: food.protein_g, carb_g: 0, fat_g: 0, calories: food.calories },
+      {
+        id: res.id!,
+        food_name: food.name,
+        protein_g: food.protein_g,
+        carb_g: food.carb_g,
+        fat_g: food.fat_g,
+        calories: food.calories,
+      },
       ...prev,
     ]);
     toast.success(`+${food.protein_g}g protein dari ${food.name}`);
@@ -151,8 +189,17 @@ export default function NutritionView({ data }: { data: NutritionData }) {
   }
 
   return (
+    // Wrapper luar TIDAK ikut scroll — overlay chat menempel ke frame yang
+    // terlihat, bukan ke konten yang sudah tergulir (dulu konten lain bocor
+    // di bawah sheet saat halaman sedang di-scroll).
+    <div style={{ position: "absolute", inset: 0 }}>
     <div
-      style={{ position: "absolute", inset: 0, overflowY: "auto", padding: "6px 20px 120px" }}
+      style={{
+        position: "absolute",
+        inset: 0,
+        overflowY: chatOpen ? "hidden" : "auto",
+        padding: "6px 20px 120px",
+      }}
       className="no-scrollbar"
     >
       <div style={{ padding: "8px 0 16px" }}>
@@ -276,6 +323,56 @@ export default function NutritionView({ data }: { data: NutritionData }) {
         <MacroBar label="Lemak" now={totals.fat} target={data.fatTarget} unit=" g" color="#ff9a5c" last />
       </div>
 
+      {/* evaluasi tegas asupan hari ini */}
+      <div style={{ marginTop: 14, borderRadius: 18, padding: 18, background: "var(--surface)", border: "1px solid var(--line2)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <span style={{ fontSize: 15 }}>🧭</span>
+          <span style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+            Evaluasi coach — tanpa basa-basi
+          </span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {verdicts.map((vd, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                gap: 9,
+                alignItems: "flex-start",
+                borderRadius: 12,
+                padding: "10px 12px",
+                background:
+                  vd.tone === "bad"
+                    ? "rgba(255,107,107,.1)"
+                    : vd.tone === "warn"
+                      ? "rgba(255,154,92,.09)"
+                      : "rgba(201,251,60,.08)",
+                border: `1px solid ${
+                  vd.tone === "bad"
+                    ? "rgba(255,107,107,.3)"
+                    : vd.tone === "warn"
+                      ? "rgba(255,154,92,.26)"
+                      : "rgba(201,251,60,.2)"
+                }`,
+              }}
+            >
+              <span style={{ fontSize: 13, lineHeight: 1.4 }}>
+                {vd.tone === "bad" ? "🛑" : vd.tone === "warn" ? "⚠️" : "✅"}
+              </span>
+              <span
+                style={{
+                  font: "600 12.5px/1.55 var(--font-jakarta), sans-serif",
+                  color:
+                    vd.tone === "bad" ? "#ff8080" : vd.tone === "warn" ? "#ff9a5c" : "var(--acc)",
+                }}
+              >
+                {vd.text}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* today's food history */}
       <div style={{ marginTop: 20, display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
         <span style={{ font: "800 11px var(--font-archivo), sans-serif", letterSpacing: ".14em", textTransform: "uppercase", color: "var(--dim)" }}>
@@ -370,8 +467,44 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       <div style={{ marginTop: 20, font: "800 11px var(--font-archivo), sans-serif", letterSpacing: ".14em", textTransform: "uppercase", color: "var(--dim)", marginBottom: 10 }}>
         Protein murah & lokal — ketuk untuk catat
       </div>
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--dim)"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)" }}
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="M21 21l-4.3-4.3" />
+        </svg>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Cari makanan… (mis. telur, ikan, susu)"
+          aria-label="Cari makanan"
+          style={{
+            width: "100%",
+            padding: "12px 14px 12px 40px",
+            borderRadius: 14,
+            background: "var(--surface)",
+            border: "1px solid var(--line)",
+            color: "var(--ink)",
+            font: "500 13.5px var(--font-jakarta), sans-serif",
+            outline: "none",
+          }}
+        />
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {FOOD_EXAMPLES.map((food) => (
+        {filteredFoods.length === 0 && (
+          <div style={{ borderRadius: 16, padding: "16px 14px", background: "var(--surface)", border: "1px dashed var(--line2)", textAlign: "center", font: "500 13px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+            Tidak ada yang cocok dengan “{debouncedSearch}”. Coba kata lain, atau catat lewat chat di atas.
+          </div>
+        )}
+        {filteredFoods.map((food) => (
           <button
             key={food.name}
             onClick={() => add(food)}
@@ -388,18 +521,18 @@ export default function NutritionView({ data }: { data: NutritionData }) {
               opacity: adding === food.name ? 0.6 : 1,
             }}
           >
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ font: "700 15px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
                 {food.name}
               </div>
               <div style={{ font: "500 12px var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 2 }}>
-                {food.portion} · {food.calories} kkal
+                {food.portion} · {food.calories} kkal · {formatNumber(food.carb_g)}g karbo · {formatNumber(food.fat_g)}g lemak
               </div>
             </div>
-            <span style={{ font: "800 16px var(--font-archivo), sans-serif", color: "var(--acc)" }}>
+            <span style={{ font: "800 16px var(--font-archivo), sans-serif", color: "var(--acc)", flex: "none" }}>
               {food.protein_g}g
             </span>
-            <span style={{ fontSize: 22, color: "var(--acc)", lineHeight: 1 }}>+</span>
+            <span style={{ fontSize: 22, color: "var(--acc)", lineHeight: 1, flex: "none" }}>+</span>
           </button>
         ))}
       </div>
@@ -408,6 +541,7 @@ export default function NutritionView({ data }: { data: NutritionData }) {
         Hasil 70–80% ditentukan total kalori, protein, & tidur — bukan suplemen. Susu/whey
         hanya pelengkap. Angka ini estimasi, bukan nasihat medis.
       </div>
+    </div>
 
       {chatOpen && (
         <NutritionChat

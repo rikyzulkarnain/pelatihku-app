@@ -14,7 +14,8 @@ import { toast } from "sonner";
 type ChatMsg = {
   role: "user" | "assistant";
   text: string;
-  totals?: NutritionChatResult["totals"];
+  /** Makro dari item yang BARU dicatat pada pesan ini (bukan total harian). */
+  items?: NonNullable<NutritionChatResult["items"]>;
 };
 
 const VOICE_PLACEHOLDER = "🎤 …";
@@ -127,7 +128,7 @@ export default function NutritionChat({
           next.push({
             role: "assistant",
             text: res.reply ?? "Tercatat ✅",
-            totals: res.changed ? res.totals : undefined,
+            items: res.changed && res.items?.length ? res.items : undefined,
           });
           return next;
         });
@@ -284,19 +285,29 @@ export default function NutritionChat({
                   }}
                 >
                   <div>{m.text}</div>
-                  {m.totals && (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr 1fr 1fr",
-                        gap: 6,
-                      }}
-                    >
-                      <TotalChip label="kkal" value={Math.round(m.totals.calories)} color="var(--acc)" />
-                      <TotalChip label="protein" value={`${m.totals.protein_g}g`} color="var(--acc)" />
-                      <TotalChip label="karbo" value={`${m.totals.carb_g}g`} color="#7cc4ff" />
-                      <TotalChip label="lemak" value={`${m.totals.fat_g}g`} color="#ff9a5c" />
+                  {m.items && m.items.length > 0 && (
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {m.items.map((it) => (
+                        <div key={it.id}>
+                          <div style={{ font: "700 12.5px var(--font-archivo), sans-serif", color: "var(--ink)", marginBottom: 5 }}>
+                            {it.food_name}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+                            <TotalChip label="kkal" value={Math.round(it.calories)} color="var(--acc)" />
+                            <TotalChip label="protein" value={`${it.protein_g}g`} color="var(--acc)" />
+                            <TotalChip label="karbo" value={`${it.carb_g}g`} color="#7cc4ff" />
+                            <TotalChip label="lemak" value={`${it.fat_g}g`} color="#ff9a5c" />
+                          </div>
+                        </div>
+                      ))}
+                      {m.items.length > 1 && (
+                        <div style={{ font: "600 11.5px var(--font-jakarta), sans-serif", color: "var(--dim)", borderTop: "1px solid var(--line2)", paddingTop: 7 }}>
+                          Total input ini: {Math.round(m.items.reduce((a, b) => a + b.calories, 0))} kkal ·{" "}
+                          {Math.round(m.items.reduce((a, b) => a + b.protein_g, 0) * 10) / 10}g protein ·{" "}
+                          {Math.round(m.items.reduce((a, b) => a + b.carb_g, 0) * 10) / 10}g karbo ·{" "}
+                          {Math.round(m.items.reduce((a, b) => a + b.fat_g, 0) * 10) / 10}g lemak
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

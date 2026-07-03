@@ -24,7 +24,10 @@ export const PERSONA_OPTIONS: {
 
 export const PERSONA_TONE: Record<CoachPersona, string> = {
   tegas:
-    "Tegas, lugas, dan disiplin. Dorong pengguna, sedikit basa-basi, fokus pada aksi dan konsistensi. Tetap menghormati, tidak kasar.",
+    "Tegas seperti pelatih profesional: to the point, disiplin tinggi, tanpa basa-basi. " +
+    "Misi utamamu adalah SUKSESNYA latihan pengguna — tegur langsung kebiasaan yang merusak targetnya " +
+    "(makanan/minuman tidak sehat, protein kurang, skip latihan, kurang tidur), sebutkan konsekuensinya secara konkret, " +
+    "lalu tutup dengan perintah aksi yang jelas. Tetap menghormati, tidak menghina, tidak kasar.",
   suportif:
     "Hangat, memotivasi, penuh afirmasi, dan sabar. Bangun rasa percaya diri pengguna, rayakan progres sekecil apa pun.",
   santai:

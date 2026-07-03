@@ -32,6 +32,8 @@ export type BodyweightLog = {
 export type FoodExample = {
   name: string;
   protein_g: number;
+  carb_g: number;
+  fat_g: number;
   calories: number;
   portion: string;
 };

@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/supabase/auth";
 import { getFitnessProfile, getProfile } from "@/features/profile/action";
+import { computeNutrition } from "@/features/nutrition/calc";
 import { BodyweightLog } from "@/types/nutrition";
 import {
   format,
@@ -229,6 +230,64 @@ export async function resetGoalAndProgress(): Promise<{ error?: string }> {
   if (profileError) return { error: profileError.message };
 
   revalidatePath("/", "layout");
+  return {};
+}
+
+/**
+ * Perbarui umur & tinggi badan di profil fitness. Target kalori/protein ikut
+ * dihitung ulang (Mifflin-St Jeor) bila data profil lain lengkap, supaya
+ * halaman Nutrisi tetap akurat setelah perubahan.
+ */
+export async function updateBodyProfile(input: {
+  age: number;
+  heightCm: number;
+}): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: "Sesi berakhir." };
+
+  const age = Math.round(input.age);
+  const heightCm = Math.round(input.heightCm);
+  if (age < 10 || age > 100) return { error: "Umur harus 10–100 tahun." };
+  if (heightCm < 100 || heightCm > 250)
+    return { error: "Tinggi harus 100–250 cm." };
+
+  const { data: fitness, error: fetchError } = await supabase
+    .from("fitness_profiles")
+    .select("gender, weight_kg, goal, training_frequency")
+    .eq("user_id", user.id)
+    .single();
+  if (fetchError) return { error: fetchError.message };
+
+  const patch: Record<string, unknown> = {
+    age,
+    height_cm: heightCm,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (fitness?.gender && fitness.weight_kg && fitness.goal && fitness.training_frequency) {
+    const result = computeNutrition({
+      gender: fitness.gender,
+      age,
+      weight_kg: Number(fitness.weight_kg),
+      height_cm: heightCm,
+      training_frequency: fitness.training_frequency,
+      goal: fitness.goal,
+    });
+    patch.tdee = result.tdee;
+    patch.daily_calorie_target = result.daily_calorie_target;
+    patch.daily_protein_target_g = result.daily_protein_target_g;
+  }
+
+  const { error } = await supabase
+    .from("fitness_profiles")
+    .update(patch)
+    .eq("user_id", user.id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/progress");
+  revalidatePath("/nutrition");
+  revalidatePath("/home");
   return {};
 }
 
