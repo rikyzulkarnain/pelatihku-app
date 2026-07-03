@@ -36,13 +36,17 @@ export function suggestNextSet(
   const allHitTop =
     completedAllSets && working.every((s) => s.reps >= target.rep_high);
   const inc = INCREMENT[equipment];
+  // Latihan tanpa beban: satuannya repetisi (bodyweight) atau menit (kardio),
+  // jadi progresinya di reps/durasi — jangan bicara kg ke user.
+  const unit = equipment === "cardio" ? "menit" : "repetisi";
+  const weightless = equipment === "bodyweight" || equipment === "cardio";
 
   if (allHitTop) {
-    if (equipment === "bodyweight" || equipment === "cardio") {
+    if (weightless) {
       return {
         weight_kg: topWeight,
         reps: lastReps + 2,
-        message: `Mantap! Sesi lalu penuh — coba +2 repetisi jadi ${lastReps + 2}.`,
+        message: `Mantap! Sesi lalu penuh — coba +2 ${unit} jadi ${lastReps + 2}.`,
       };
     }
     const next = topWeight + inc;
@@ -58,13 +62,18 @@ export function suggestNextSet(
     return {
       weight_kg: topWeight,
       reps: target.rep_high,
-      message: `Tetap ${topWeight} kg dulu — selesaikan semua ${target.sets} set untuk bisa naik.`,
+      message: weightless
+        ? `Selesaikan semua ${target.sets} set dulu untuk bisa nambah ${unit}.`
+        : `Tetap ${topWeight} kg dulu — selesaikan semua ${target.sets} set untuk bisa naik.`,
     };
   }
 
+  const nextReps = Math.min(lastReps + 1, target.rep_high);
   return {
     weight_kg: topWeight,
-    reps: Math.min(lastReps + 1, target.rep_high),
-    message: `Ulangi ${topWeight} kg, target +1 repetisi.`,
+    reps: nextReps,
+    message: weightless
+      ? `Coba ${nextReps} ${unit} sesi ini.`
+      : `Ulangi ${topWeight} kg, target +1 repetisi.`,
   };
 }

@@ -1,72 +1,271 @@
 "use client";
 
 import { ExerciseSheet } from "@/components/common/exercise-sheet";
-import { completeSession, logSet, removeSet, SessionData } from "@/features/workout/action";
+import {
+  completeSession,
+  SessionData,
+  SetPayload,
+  syncSessionSets,
+} from "@/features/workout/action";
 import { formatNumber } from "@/lib/utils";
 import { Exercise } from "@/types/program";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-type ExState = { weight: number; done: Set<number> };
+type SetEntry = { done: boolean; reps: number };
+type ExState = { weight: number; sets: SetEntry[] };
+type SessionState = Record<string, ExState>;
+
+/** Satuan pencatatan per jenis alat: kardio pakai menit, bodyweight pakai reps. */
+function exKind(ex: Exercise): "weighted" | "bodyweight" | "cardio" {
+  if (ex.equipment === "cardio") return "cardio";
+  if (ex.equipment === "bodyweight") return "bodyweight";
+  return "weighted";
+}
+
+function buildInitialState(data: SessionData): SessionState {
+  const init: SessionState = {};
+  for (const ex of data.exercises) {
+    const defaultReps = Math.max(1, ex.suggestion.reps || ex.target_rep_low);
+    init[ex.exercise.id] = {
+      weight: ex.logged[0]?.weight_kg ?? ex.suggestion.weight_kg,
+      sets: Array.from({ length: ex.target_sets }, (_, i) => {
+        const logged = ex.logged.find((l) => l.set_index === i + 1);
+        return logged
+          ? { done: true, reps: logged.reps }
+          : { done: false, reps: defaultReps };
+      }),
+    };
+  }
+  return init;
+}
 
 export default function SessionView({ data }: { data: SessionData }) {
   const router = useRouter();
+  const storageKey = `pk-session-${data.session_id}`;
 
-  const [state, setState] = useState<Record<string, ExState>>(() => {
-    const init: Record<string, ExState> = {};
-    for (const ex of data.exercises) {
-      init[ex.exercise.id] = {
-        weight: ex.logged[0]?.weight_kg ?? ex.suggestion.weight_kg,
-        done: new Set(ex.logged.map((l) => l.set_index)),
-      };
-    }
-    return init;
-  });
+  const [state, setState] = useState<SessionState>(() => buildInitialState(data));
   const [finishing, setFinishing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [summary, setSummary] = useState<{ volume: number; streak: number } | null>(null);
   const [videoOf, setVideoOf] = useState<Exercise | null>(null);
 
-  const repsFor = (exId: string) =>
-    data.exercises.find((e) => e.exercise.id === exId)?.target_rep_high ?? 10;
+  // ---- Local-first: pulihkan progres dari localStorage, simpan tiap perubahan ----
+  const restored = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const saved = JSON.parse(raw) as SessionState;
+        setState((prev) => {
+          const merged: SessionState = {};
+          for (const [exId, cur] of Object.entries(prev)) {
+            const s = saved[exId];
+            merged[exId] = s
+              ? {
+                  weight: typeof s.weight === "number" ? s.weight : cur.weight,
+                  sets: cur.sets.map((slot, i) => s.sets?.[i] ?? slot),
+                }
+              : cur;
+          }
+          return merged;
+        });
+      }
+    } catch {
+      // localStorage rusak/terblokir → lanjut pakai data server saja.
+    }
+    restored.current = true;
+  }, [storageKey]);
 
+  const collectSets = useCallback(
+    (st: SessionState): SetPayload[] => {
+      const out: SetPayload[] = [];
+      for (const ex of data.exercises) {
+        const s = st[ex.exercise.id];
+        const kind = exKind(ex.exercise);
+        s.sets.forEach((slot, i) => {
+          if (!slot.done) return;
+          out.push({
+            exerciseId: ex.exercise.id,
+            setIndex: i + 1,
+            weightKg: kind === "weighted" ? s.weight : 0,
+            reps: slot.reps,
+          });
+        });
+      }
+      return out;
+    },
+    [data.exercises],
+  );
+
+  // Sync ke server di latar belakang (debounce) — UI tidak pernah menunggu server.
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirty = useRef(false);
+
+  const doSync = useCallback(
+    async (snapshot: SessionState) => {
+      setSyncing(true);
+      const res = await syncSessionSets({
+        sessionId: data.session_id,
+        sets: collectSets(snapshot),
+      });
+      setSyncing(false);
+      // Gagal (offline dsb.) tidak apa-apa: data aman di localStorage dan akan
+      // di-flush ulang saat perubahan berikutnya / saat menyelesaikan sesi.
+      return !res.error;
+    },
+    [data.session_id, collectSets],
+  );
+
+  useEffect(() => {
+    if (!restored.current) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(state));
+    } catch {}
+    // Hanya sync bila ada perubahan dari user, bukan saat halaman baru dibuka.
+    if (!dirty.current) return;
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => doSync(state), 2500);
+    return () => {
+      if (syncTimer.current) clearTimeout(syncTimer.current);
+    };
+  }, [state, storageKey, doSync]);
+
+  // ---- Timer istirahat ----
+  // `seq` memaksa timer restart saat set baru dicentang; timestamp akhir
+  // dihitung di dalam effect (aturan React Compiler: render harus pure).
+  const [rest, setRest] = useState<{ seq: number; seconds: number; exName: string } | null>(null);
+  const [remaining, setRemaining] = useState(0);
+  const restSeq = useRef(0);
+  const audioRef = useRef<AudioContext | null>(null);
+
+  function ensureAudio() {
+    try {
+      if (!audioRef.current) {
+        const Ctx =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        audioRef.current = new Ctx();
+      }
+      audioRef.current.resume();
+    } catch {}
+  }
+
+  const fireAlarm = useCallback(() => {
+    const ctx = audioRef.current;
+    if (ctx) {
+      try {
+        const t0 = ctx.currentTime;
+        for (let i = 0; i < 4; i++) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = i % 2 === 0 ? 880 : 1175;
+          gain.gain.setValueAtTime(0.0001, t0 + i * 0.45);
+          gain.gain.exponentialRampToValueAtTime(0.5, t0 + i * 0.45 + 0.03);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.45 + 0.38);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t0 + i * 0.45);
+          osc.stop(t0 + i * 0.45 + 0.42);
+        }
+      } catch {}
+    }
+    try {
+      navigator.vibrate?.([300, 120, 300, 120, 400]);
+    } catch {}
+    if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
+      try {
+        new Notification("Istirahat selesai! 💪", { body: "Waktunya lanjut set berikutnya." });
+      } catch {}
+    }
+    toast.success("⏰ Istirahat selesai — lanjut set berikutnya!");
+  }, []);
+
+  useEffect(() => {
+    if (!rest) return;
+    const endsAt = Date.now() + rest.seconds * 1000;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      setRemaining(left);
+      if (left <= 0) {
+        setRest(null);
+        fireAlarm();
+      }
+    };
+    tick();
+    const t = setInterval(tick, 300);
+    return () => clearInterval(t);
+  }, [rest, fireAlarm]);
+
+  // ---- Derivasi tampilan ----
   const { doneCount, volume } = useMemo(() => {
     let dc = 0;
     let vol = 0;
     for (const ex of data.exercises) {
       const s = state[ex.exercise.id];
-      dc += s.done.size;
-      vol += s.done.size * s.weight * ex.target_rep_high;
+      for (const slot of s.sets) {
+        if (!slot.done) continue;
+        dc += 1;
+        if (exKind(ex.exercise) === "weighted") vol += slot.reps * s.weight;
+      }
     }
     return { doneCount: dc, volume: Math.round(vol) };
   }, [state, data.exercises]);
 
   function setWeight(exId: string, delta: number) {
+    dirty.current = true;
     setState((prev) => ({
       ...prev,
       [exId]: { ...prev[exId], weight: Math.max(0, prev[exId].weight + delta) },
     }));
   }
 
-  async function toggleSet(exId: string, setIndex: number) {
-    const cur = state[exId];
-    const isDone = cur.done.has(setIndex);
-    const nextDone = new Set(cur.done);
-    if (isDone) nextDone.delete(setIndex);
-    else nextDone.add(setIndex);
-    setState((prev) => ({ ...prev, [exId]: { ...prev[exId], done: nextDone } }));
+  function setReps(exId: string, setIdx: number, delta: number) {
+    dirty.current = true;
+    setState((prev) => {
+      const cur = prev[exId];
+      const sets = cur.sets.map((s, i) =>
+        i === setIdx ? { ...s, reps: Math.max(1, Math.min(999, s.reps + delta)) } : s,
+      );
+      return { ...prev, [exId]: { ...cur, sets } };
+    });
+  }
 
-    if (isDone) {
-      await removeSet({ sessionId: data.session_id, exerciseId: exId, setIndex });
+  function toggleSet(exId: string, setIdx: number, restSeconds: number, exName: string) {
+    ensureAudio();
+    if (
+      typeof Notification !== "undefined" &&
+      Notification.permission === "default"
+    ) {
+      Notification.requestPermission().catch(() => {});
+    }
+    const cur = state[exId];
+    const slot = cur.sets[setIdx];
+    if (!slot.done) {
+      // Harus berurutan: set N hanya bisa dicentang bila semua sebelumnya selesai.
+      if (cur.sets.slice(0, setIdx).some((s) => !s.done)) {
+        toast.info(`Selesaikan Set ${setIdx} dulu ya, biar teratur.`);
+        return;
+      }
     } else {
-      const res = await logSet({
-        sessionId: data.session_id,
-        exerciseId: exId,
-        setIndex,
-        weightKg: cur.weight,
-        reps: repsFor(exId),
-      });
-      if (res.error) toast.error(res.error);
+      // Hanya set terakhir yang selesai yang boleh dibatalkan (hindari bolong).
+      if (cur.sets[setIdx + 1]?.done) {
+        toast.info("Batalkan dari set paling akhir dulu.");
+        return;
+      }
+    }
+    const nowDone = !slot.done;
+    dirty.current = true;
+    setState((prev) => {
+      const c = prev[exId];
+      const sets = c.sets.map((s, i) => (i === setIdx ? { ...s, done: nowDone } : s));
+      return { ...prev, [exId]: { ...c, sets } };
+    });
+    if (nowDone && restSeconds > 0) {
+      restSeq.current += 1;
+      setRest({ seq: restSeq.current, seconds: restSeconds, exName });
     }
   }
 
@@ -76,12 +275,17 @@ export default function SessionView({ data }: { data: SessionData }) {
       return;
     }
     setFinishing(true);
-    const res = await completeSession(data.session_id);
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    const res = await completeSession(data.session_id, collectSets(state));
     setFinishing(false);
     if (res.error) {
       toast.error(res.error);
       return;
     }
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {}
+    setRest(null);
     setSummary({ volume: res.volume, streak: res.streak });
   }
 
@@ -112,7 +316,7 @@ export default function SessionView({ data }: { data: SessionData }) {
             {data.day_label}
           </div>
           <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
-            {doneCount} set selesai
+            {doneCount} set selesai{syncing ? " · menyinkron…" : ""}
           </div>
         </div>
         <div style={{ font: "800 15px var(--font-archivo), sans-serif", color: "var(--acc)" }}>
@@ -121,7 +325,7 @@ export default function SessionView({ data }: { data: SessionData }) {
       </div>
 
       {/* exercises */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "6px 20px 120px" }} className="no-scrollbar">
+      <div style={{ flex: 1, overflowY: "auto", padding: "6px 20px 150px" }} className="no-scrollbar">
         {data.rest_warning && (
           <div
             style={{
@@ -143,6 +347,13 @@ export default function SessionView({ data }: { data: SessionData }) {
         )}
         {data.exercises.map((ex) => {
           const s = state[ex.exercise.id];
+          const kind = exKind(ex.exercise);
+          const unit = kind === "cardio" ? "mnt" : "reps";
+          const firstUndone = s.sets.findIndex((x) => !x.done);
+          const restLabel =
+            ex.rest_seconds >= 60
+              ? `${Math.round(ex.rest_seconds / 60 * 10) / 10} mnt`.replace(".", ",")
+              : `${ex.rest_seconds} dtk`;
           return (
             <div
               key={ex.exercise.id}
@@ -176,7 +387,7 @@ export default function SessionView({ data }: { data: SessionData }) {
                 </span>
               </div>
               <div style={{ font: "600 12.5px var(--font-jakarta), sans-serif", color: "var(--dim)", marginBottom: 12 }}>
-                {ex.target_sets} set × {ex.target_rep_low}-{ex.target_rep_high} · terakhir {ex.last_label}
+                {ex.target_sets} set × {ex.target_rep_low}-{ex.target_rep_high} {unit} · istirahat {restLabel} · terakhir {ex.last_label}
               </div>
 
               {ex.suggestion.message && (
@@ -199,43 +410,111 @@ export default function SessionView({ data }: { data: SessionData }) {
                 </div>
               )}
 
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <button onClick={() => setWeight(ex.exercise.id, -2.5)} style={stepBtn}>
-                  −
-                </button>
-                <div style={{ textAlign: "center", minWidth: 70 }}>
-                  <span style={{ font: "900 22px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
-                    {s.weight}
-                  </span>
-                  <span style={{ font: "700 13px var(--font-archivo), sans-serif", color: "var(--dim)" }}> kg</span>
+              {kind === "weighted" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <button onClick={() => setWeight(ex.exercise.id, -2.5)} style={stepBtn} aria-label="Kurangi beban">
+                    −
+                  </button>
+                  <div style={{ textAlign: "center", minWidth: 70 }}>
+                    <span style={{ font: "900 22px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+                      {s.weight}
+                    </span>
+                    <span style={{ font: "700 13px var(--font-archivo), sans-serif", color: "var(--dim)" }}> kg</span>
+                  </div>
+                  <button onClick={() => setWeight(ex.exercise.id, 2.5)} style={stepBtn} aria-label="Tambah beban">
+                    +
+                  </button>
+                  <div style={{ flex: 1, textAlign: "right", font: "600 12px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+                    selesaikan set berurutan
+                  </div>
                 </div>
-                <button onClick={() => setWeight(ex.exercise.id, 2.5)} style={stepBtn}>
-                  +
-                </button>
-                <div style={{ flex: 1, textAlign: "right", font: "600 12px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
-                  ketuk set bila selesai
-                </div>
-              </div>
+              )}
 
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {Array.from({ length: ex.target_sets }).map((_, i) => {
-                  const idx = i + 1;
-                  const done = s.done.has(idx);
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {s.sets.map((slot, i) => {
+                  const locked = !slot.done && firstUndone !== -1 && i > firstUndone;
+                  const totalKg = Math.round(slot.reps * s.weight * 10) / 10;
                   return (
-                    <button
-                      key={idx}
-                      onClick={() => toggleSet(ex.exercise.id, idx)}
+                    <div
+                      key={i}
                       style={{
-                        padding: "9px 14px",
-                        borderRadius: 11,
-                        font: "700 13px var(--font-archivo), sans-serif",
-                        background: done ? "var(--lime)" : "var(--raised)",
-                        color: done ? "#10130a" : "var(--dim)",
-                        border: done ? "none" : "1px solid var(--line2)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        opacity: locked ? 0.45 : 1,
+                        transition: "opacity .15s",
                       }}
                     >
-                      {done ? "✓ " : ""}Set {idx}
-                    </button>
+                      <button
+                        onClick={() => toggleSet(ex.exercise.id, i, ex.rest_seconds, ex.exercise.name)}
+                        disabled={locked}
+                        style={{
+                          padding: "9px 0",
+                          width: 74,
+                          borderRadius: 11,
+                          font: "700 13px var(--font-archivo), sans-serif",
+                          background: slot.done ? "var(--lime)" : "var(--raised)",
+                          color: slot.done ? "#10130a" : "var(--dim)",
+                          border: slot.done ? "none" : "1px solid var(--line2)",
+                          flex: "none",
+                        }}
+                      >
+                        {slot.done ? "✓ " : locked ? "🔒 " : ""}Set {i + 1}
+                      </button>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2,
+                          background: "var(--raised)",
+                          border: "1px solid var(--line2)",
+                          borderRadius: 11,
+                          padding: 2,
+                          flex: "none",
+                        }}
+                      >
+                        <button
+                          onClick={() => setReps(ex.exercise.id, i, -1)}
+                          disabled={locked}
+                          style={repBtn}
+                          aria-label={`Kurangi ${unit}`}
+                        >
+                          −
+                        </button>
+                        <span style={{ font: "800 13px var(--font-archivo), sans-serif", color: "var(--ink)", minWidth: 24, textAlign: "center" }}>
+                          {slot.reps}
+                        </span>
+                        <button
+                          onClick={() => setReps(ex.exercise.id, i, 1)}
+                          disabled={locked}
+                          style={repBtn}
+                          aria-label={`Tambah ${unit}`}
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      <div
+                        style={{
+                          flex: 1,
+                          textAlign: "right",
+                          font: "600 12px var(--font-jakarta), sans-serif",
+                          color: slot.done ? "var(--acc)" : "var(--dim)",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {kind === "weighted"
+                          ? s.weight > 0
+                            ? `${slot.reps} × ${s.weight} kg = ${formatNumber(totalKg)} kg`
+                            : `${slot.reps} reps`
+                          : kind === "cardio"
+                            ? `${slot.reps} menit`
+                            : `${slot.reps} reps`}
+                      </div>
+                    </div>
                   );
                 })}
 
@@ -244,7 +523,7 @@ export default function SessionView({ data }: { data: SessionData }) {
                     onClick={() => setVideoOf(ex.exercise)}
                     aria-label="Lihat video teknik"
                     style={{
-                      marginLeft: "auto",
+                      alignSelf: "flex-end",
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 7,
@@ -268,8 +547,70 @@ export default function SessionView({ data }: { data: SessionData }) {
         })}
       </div>
 
-      {/* finish */}
-      <div style={{ padding: "14px 20px 26px", background: "linear-gradient(0deg,var(--phone-bg) 60%,transparent)" }}>
+      {/* rest timer + finish */}
+      <div style={{ padding: "10px 20px 26px", background: "linear-gradient(0deg,var(--phone-bg) 60%,transparent)" }}>
+        {rest && (
+          <div
+            style={{
+              borderRadius: 16,
+              border: "1px solid rgba(201,251,60,.25)",
+              background: "var(--surface)",
+              padding: "10px 14px",
+              marginBottom: 10,
+              overflow: "hidden",
+              position: "relative",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: `${Math.min(100, (remaining / rest.seconds) * 100)}%`,
+                background: "rgba(201,251,60,.08)",
+                transition: "width .3s linear",
+              }}
+            />
+            <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 16 }}>⏱️</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ font: "800 16px var(--font-archivo), sans-serif", color: "var(--acc)" }}>
+                  {String(Math.floor(remaining / 60)).padStart(2, "0")}:{String(remaining % 60).padStart(2, "0")}
+                </div>
+                <div style={{ font: "600 11px var(--font-jakarta), sans-serif", color: "var(--dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  Istirahat · {rest.exName}
+                </div>
+              </div>
+              <button
+                onClick={() => setRest((r) => (r ? { ...r, seconds: remaining + 30 } : r))}
+                style={{
+                  padding: "7px 11px",
+                  borderRadius: 10,
+                  background: "var(--raised)",
+                  border: "1px solid var(--line2)",
+                  color: "var(--ink2)",
+                  font: "700 12px var(--font-archivo), sans-serif",
+                  flex: "none",
+                }}
+              >
+                +30d
+              </button>
+              <button
+                onClick={() => setRest(null)}
+                style={{
+                  padding: "7px 11px",
+                  borderRadius: 10,
+                  background: "var(--raised)",
+                  border: "1px solid var(--line2)",
+                  color: "var(--dim)",
+                  font: "700 12px var(--font-archivo), sans-serif",
+                  flex: "none",
+                }}
+              >
+                Lewati
+              </button>
+            </div>
+          </div>
+        )}
         <button
           onClick={finish}
           disabled={finishing}
@@ -307,6 +648,15 @@ const stepBtn: React.CSSProperties = {
   borderRadius: 11,
   background: "var(--raised)",
   font: "600 20px var(--font-archivo), sans-serif",
+  color: "var(--ink2)",
+};
+
+const repBtn: React.CSSProperties = {
+  width: 28,
+  height: 28,
+  borderRadius: 8,
+  background: "transparent",
+  font: "600 16px var(--font-archivo), sans-serif",
   color: "var(--ink2)",
 };
 

@@ -49,6 +49,7 @@ export type SessionExercise = {
   target_sets: number;
   target_rep_low: number;
   target_rep_high: number;
+  rest_seconds: number;
   notes: string | null;
   suggestion: OverloadSuggestion;
   last_label: string;
@@ -70,68 +71,83 @@ export async function getSessionData(
   const user = await getCurrentUser();
   if (!user) return null;
 
+  // Satu query untuk sesi + hari + gerakan sekaligus (dulu 2 round-trip berantai).
   const { data: session } = await supabase
     .from("workout_sessions")
-    .select("id, program_day_id")
+    .select(
+      "id, program_day_id, day:program_days(label, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, rest_seconds, notes, exercise:exercises(*)))",
+    )
     .eq("id", sessionId)
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (!session?.program_day_id) return null;
+  const day = session?.day as unknown as {
+    label: string;
+    exercises: {
+      id: string;
+      order_index: number;
+      target_sets: number;
+      target_rep_low: number;
+      target_rep_high: number;
+      rest_seconds: number | null;
+      notes: string | null;
+      exercise: Exercise;
+    }[];
+  } | null;
 
-  // Ambil detail hari + set yang sudah tercatat di sesi ini secara paralel.
-  const [{ data: day }, { data: currentSets }] = await Promise.all([
-    supabase
-      .from("program_days")
-      .select(
-        "label, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, notes, exercise:exercises(*))",
-      )
-      .eq("id", session.program_day_id)
-      .single(),
-    supabase
-      .from("set_logs")
-      .select("exercise_id, set_index, weight_kg, reps")
-      .eq("session_id", sessionId)
-      .order("set_index", { ascending: true }),
-  ]);
-
-  if (!day) return null;
+  if (!session?.program_day_id || !day) return null;
 
   const programExercises = (day.exercises ?? []).sort(
-    (a: { order_index: number }, b: { order_index: number }) =>
-      a.order_index - b.order_index,
+    (a, b) => a.order_index - b.order_index,
   );
-
-  // Riwayat set dari sesi-sesi sebelumnya untuk SEMUA gerakan di hari ini —
-  // satu query saja (bukan per-gerakan) supaya tidak ada N+1 round-trip.
   const exerciseIds = programExercises
-    .map((pe) => (pe.exercise as unknown as Exercise)?.id)
+    .map((pe) => pe.exercise?.id)
     .filter(Boolean) as string[];
 
-  const priorByExercise = new Map<string, SetLog[]>();
-  if (exerciseIds.length > 0) {
-    const { data: allPrior } = await supabase
-      .from("set_logs")
-      .select("*")
-      .eq("user_id", user.id)
-      .in("exercise_id", exerciseIds)
-      .neq("session_id", sessionId)
-      .order("created_at", { ascending: false })
-      .limit(Math.max(60, exerciseIds.length * 12))
-      .returns<SetLog[]>();
+  // Sisa data diambil paralel dalam satu gelombang: set sesi ini, riwayat
+  // overload semua gerakan (satu query, bukan N+1), dan rambu recovery.
+  const [{ data: currentSets }, { data: allPrior }, restWarning] =
+    await Promise.all([
+      supabase
+        .from("set_logs")
+        .select("exercise_id, set_index, weight_kg, reps")
+        .eq("session_id", sessionId)
+        .order("set_index", { ascending: true }),
+      exerciseIds.length > 0
+        ? supabase
+            .from("set_logs")
+            .select("*")
+            .eq("user_id", user.id)
+            .in("exercise_id", exerciseIds)
+            .neq("session_id", sessionId)
+            .order("created_at", { ascending: false })
+            .limit(Math.max(60, exerciseIds.length * 12))
+            .returns<SetLog[]>()
+        : Promise.resolve({ data: [] as SetLog[] }),
+      computeRestWarning(supabase, user.id, sessionId, session.program_day_id, [
+        ...new Set(
+          programExercises
+            // Kardio bukan latihan beban — jangan dianggap "melatih otot"
+            // untuk keperluan rambu recovery 48 jam.
+            .filter((pe) => pe.exercise?.category !== "cardio")
+            .map((pe) => pe.exercise?.muscle_group)
+            .filter(Boolean) as string[],
+        ),
+      ]),
+    ]);
 
-    // Sudah terurut created_at desc → entri pertama tiap gerakan = paling baru.
-    for (const s of allPrior ?? []) {
-      const arr = priorByExercise.get(s.exercise_id);
-      if (arr) arr.push(s);
-      else priorByExercise.set(s.exercise_id, [s]);
-    }
+  const priorByExercise = new Map<string, SetLog[]>();
+  // Sudah terurut created_at desc → entri pertama tiap gerakan = paling baru.
+  for (const s of allPrior ?? []) {
+    const arr = priorByExercise.get(s.exercise_id);
+    if (arr) arr.push(s);
+    else priorByExercise.set(s.exercise_id, [s]);
   }
 
   const exercises: SessionExercise[] = [];
 
   for (const pe of programExercises) {
-    const exercise = pe.exercise as unknown as Exercise;
+    const exercise = pe.exercise;
 
     // Set dari sesi terakhir untuk gerakan ini (untuk saran overload).
     const priorSets = priorByExercise.get(exercise.id) ?? [];
@@ -141,7 +157,13 @@ export async function getSessionData(
       const lastSessionId = priorSets[0].session_id;
       lastSession = priorSets.filter((s) => s.session_id === lastSessionId);
       const top = Math.max(...lastSession.map((s) => s.weight_kg));
-      lastLabel = top > 0 ? `${top} kg` : "bodyweight";
+      const topReps = Math.max(...lastSession.map((s) => s.reps));
+      lastLabel =
+        exercise.equipment === "cardio"
+          ? `${topReps} mnt`
+          : top > 0
+            ? `${top} kg`
+            : `${topReps} reps`;
     }
 
     const suggestion = suggestNextSet(
@@ -160,6 +182,7 @@ export async function getSessionData(
       target_sets: pe.target_sets,
       target_rep_low: pe.target_rep_low,
       target_rep_high: pe.target_rep_high,
+      rest_seconds: pe.rest_seconds ?? 90,
       notes: pe.notes,
       suggestion,
       last_label: lastLabel,
@@ -173,14 +196,6 @@ export async function getSessionData(
     });
   }
 
-  // Rambu recovery: apakah otot yang dilatih hari ini baru dilatih < 48 jam?
-  const restWarning = await computeRestWarning(
-    supabase,
-    user.id,
-    sessionId,
-    programExercises.map((pe) => (pe.exercise as unknown as Exercise)?.muscle_group),
-  );
-
   return {
     session_id: sessionId,
     day_label: day.label,
@@ -193,40 +208,43 @@ async function computeRestWarning(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   sessionId: string,
-  rawMuscleGroups: (string | undefined)[],
+  programDayId: string,
+  muscleGroups: string[],
 ): Promise<string | null> {
-  const muscleGroups = Array.from(
-    new Set(rawMuscleGroups.filter(Boolean) as string[]),
-  );
   if (muscleGroups.length === 0) return null;
 
-  // Semua gerakan yang menyasar otot-otot ini (bukan cuma yang di sesi ini).
-  const { data: sameMuscle } = await supabase
-    .from("exercises")
-    .select("id, muscle_group")
-    .in("muscle_group", muscleGroups)
-    .returns<{ id: string; muscle_group: string }[]>();
-
-  const idToMuscle = new Map((sameMuscle ?? []).map((e) => [e.id, e.muscle_group]));
-  if (idToMuscle.size === 0) return null;
-
+  // Log 48 jam terakhir beserta otot & asal sesinya — satu query (dulu dua).
   const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
   const { data: recent } = await supabase
     .from("set_logs")
-    .select("exercise_id, created_at")
+    .select(
+      "created_at, exercise:exercises!inner(muscle_group, category), session:workout_sessions!inner(program_day_id)",
+    )
     .eq("user_id", userId)
     .neq("session_id", sessionId)
-    .in("exercise_id", Array.from(idToMuscle.keys()))
     .gte("created_at", cutoff)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(300)
+    .returns<
+      {
+        created_at: string;
+        exercise: { muscle_group: string; category: string };
+        session: { program_day_id: string | null };
+      }[]
+    >();
 
   // Jam sejak otot terakhir dilatih (ambil yang paling baru per otot).
   const hoursByMuscle = new Map<string, number>();
   for (const r of recent ?? []) {
-    const muscle = idToMuscle.get(r.exercise_id);
+    // Sesi lain dari HARI PROGRAM yang sama = workout ini juga (mis. sesi
+    // yang terputus lalu dimulai ulang) — bukan latihan terpisah.
+    if (r.session?.program_day_id === programDayId) continue;
+    // Kardio (jump rope, lari, dst.) tidak dihitung melatih otot.
+    if (r.exercise?.category === "cardio") continue;
+    const muscle = r.exercise?.muscle_group;
     if (!muscle || hoursByMuscle.has(muscle)) continue;
     const hours =
-      (Date.now() - new Date(r.created_at as string).getTime()) / 3_600_000;
+      (Date.now() - new Date(r.created_at).getTime()) / 3_600_000;
     hoursByMuscle.set(muscle, hours);
   }
 
@@ -238,61 +256,81 @@ async function computeRestWarning(
   return `Otot ${labels.join(", ")} baru dilatih ~${minHours} jam lalu. Idealnya beri jeda ~48 jam biar pulih maksimal — boleh lanjut, tapi jangan dipaksakan.`;
 }
 
-export async function logSet(input: {
-  sessionId: string;
+export type SetPayload = {
   exerciseId: string;
   setIndex: number;
   weightKg: number;
   reps: number;
+};
+
+/**
+ * Snapshot penuh set sebuah sesi dari state lokal client → server.
+ * Idempotent (hapus lalu tulis ulang), jadi aman dipanggil berulang sebagai
+ * background sync maupun flush terakhir saat menyelesaikan sesi.
+ */
+async function replaceSessionSets(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  sessionId: string,
+  sets: SetPayload[],
+): Promise<string | null> {
+  const { error: delError } = await supabase
+    .from("set_logs")
+    .delete()
+    .eq("session_id", sessionId)
+    .eq("user_id", userId);
+  if (delError) return delError.message;
+
+  if (sets.length === 0) return null;
+
+  const { error } = await supabase.from("set_logs").insert(
+    sets.map((s) => ({
+      session_id: sessionId,
+      exercise_id: s.exerciseId,
+      user_id: userId,
+      set_index: s.setIndex,
+      weight_kg: s.weightKg,
+      reps: s.reps,
+    })),
+  );
+  return error?.message ?? null;
+}
+
+export async function syncSessionSets(input: {
+  sessionId: string;
+  sets: SetPayload[];
 }): Promise<{ error?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir." };
 
-  // Replace any existing log for this set slot (idempotent toggle-on).
-  await supabase
-    .from("set_logs")
-    .delete()
-    .eq("session_id", input.sessionId)
-    .eq("exercise_id", input.exerciseId)
-    .eq("set_index", input.setIndex);
-
-  const { error } = await supabase.from("set_logs").insert({
-    session_id: input.sessionId,
-    exercise_id: input.exerciseId,
-    user_id: user.id,
-    set_index: input.setIndex,
-    weight_kg: input.weightKg,
-    reps: input.reps,
-  });
-
-  if (error) return { error: error.message };
-  return {};
-}
-
-export async function removeSet(input: {
-  sessionId: string;
-  exerciseId: string;
-  setIndex: number;
-}): Promise<void> {
-  const supabase = await createClient();
-  const user = await getCurrentUser();
-  if (!user) return;
-  await supabase
-    .from("set_logs")
-    .delete()
-    .eq("session_id", input.sessionId)
-    .eq("exercise_id", input.exerciseId)
-    .eq("set_index", input.setIndex)
-    .eq("user_id", user.id);
+  const error = await replaceSessionSets(
+    supabase,
+    user.id,
+    input.sessionId,
+    input.sets,
+  );
+  return error ? { error } : {};
 }
 
 export async function completeSession(
   sessionId: string,
+  finalSets?: SetPayload[],
 ): Promise<{ volume: number; streak: number; error?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
   if (!user) return { volume: 0, streak: 0, error: "Sesi berakhir." };
+
+  // Flush state lokal terakhir sebelum sesi ditutup (mode local-first).
+  if (finalSets) {
+    const syncError = await replaceSessionSets(
+      supabase,
+      user.id,
+      sessionId,
+      finalSets,
+    );
+    if (syncError) return { volume: 0, streak: 0, error: syncError };
+  }
 
   const { data: sets } = await supabase
     .from("set_logs")
