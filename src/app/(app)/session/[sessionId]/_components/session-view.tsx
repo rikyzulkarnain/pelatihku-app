@@ -137,8 +137,11 @@ export default function SessionView({ data }: { data: SessionData }) {
   // dihitung di dalam effect (aturan React Compiler: render harus pure).
   const [rest, setRest] = useState<{ seq: number; seconds: number; exName: string } | null>(null);
   const [remaining, setRemaining] = useState(0);
+  const [alarming, setAlarming] = useState(false);
   const restSeq = useRef(0);
   const audioRef = useRef<AudioContext | null>(null);
+  const alarmGainRef = useRef<GainNode | null>(null);
+  const vibrateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function ensureAudio() {
     try {
@@ -152,35 +155,74 @@ export default function SessionView({ data }: { data: SessionData }) {
     } catch {}
   }
 
-  const fireAlarm = useCallback(() => {
+  /** Matikan alarm sepenuhnya (satu-satunya cara menghentikan bunyi). */
+  const stopAlarm = useCallback(() => {
+    try {
+      alarmGainRef.current?.disconnect();
+    } catch {}
+    alarmGainRef.current = null;
+    if (vibrateTimerRef.current) {
+      clearInterval(vibrateTimerRef.current);
+      vibrateTimerRef.current = null;
+    }
+    try {
+      navigator.vibrate?.(0);
+    } catch {}
+    setAlarming(false);
+  }, []);
+
+  /**
+   * Alarm keras yang berbunyi TERUS-MENERUS sampai dimatikan lewat tombol.
+   * Bip dijadwalkan ±6 menit ke depan langsung di audio thread (Web Audio),
+   * jadi tetap berbunyi walau timer JS di-throttle saat tab di background —
+   * satu-satunya cara berhenti adalah stopAlarm().
+   */
+  const startAlarm = useCallback(() => {
+    try {
+      alarmGainRef.current?.disconnect();
+    } catch {}
     const ctx = audioRef.current;
     if (ctx) {
       try {
+        ctx.resume();
+        const master = ctx.createGain();
+        master.gain.value = 1;
+        master.connect(ctx.destination);
+        alarmGainRef.current = master;
         const t0 = ctx.currentTime;
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < 330; i++) {
           const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = "sine";
-          osc.frequency.value = i % 2 === 0 ? 880 : 1175;
-          gain.gain.setValueAtTime(0.0001, t0 + i * 0.45);
-          gain.gain.exponentialRampToValueAtTime(0.5, t0 + i * 0.45 + 0.03);
-          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.45 + 0.38);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(t0 + i * 0.45);
-          osc.stop(t0 + i * 0.45 + 0.42);
+          const g = ctx.createGain();
+          osc.type = "square"; // lebih tajam & berisik daripada sine
+          osc.frequency.value = i % 2 === 0 ? 950 : 1420;
+          const ts = t0 + i * 1.1;
+          g.gain.setValueAtTime(0.0001, ts);
+          g.gain.exponentialRampToValueAtTime(0.7, ts + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, ts + 0.75);
+          osc.connect(g);
+          g.connect(master);
+          osc.start(ts);
+          osc.stop(ts + 0.8);
         }
       } catch {}
     }
+    if (vibrateTimerRef.current) clearInterval(vibrateTimerRef.current);
+    vibrateTimerRef.current = setInterval(() => {
+      try {
+        navigator.vibrate?.([400, 150, 400]);
+      } catch {}
+    }, 1300);
     try {
-      navigator.vibrate?.([300, 120, 300, 120, 400]);
+      navigator.vibrate?.([400, 150, 400]);
     } catch {}
     if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
       try {
-        new Notification("Istirahat selesai! 💪", { body: "Waktunya lanjut set berikutnya." });
+        new Notification("Istirahat selesai! ⏰", {
+          body: "Buka aplikasi dan tekan Matikan untuk menghentikan alarm.",
+        });
       } catch {}
     }
-    toast.success("⏰ Istirahat selesai — lanjut set berikutnya!");
+    setAlarming(true);
   }, []);
 
   useEffect(() => {
@@ -191,13 +233,25 @@ export default function SessionView({ data }: { data: SessionData }) {
       setRemaining(left);
       if (left <= 0) {
         setRest(null);
-        fireAlarm();
+        startAlarm();
       }
     };
     tick();
     const t = setInterval(tick, 300);
     return () => clearInterval(t);
-  }, [rest, fireAlarm]);
+  }, [rest, startAlarm]);
+
+  // Pastikan bunyi & getar berhenti saat meninggalkan halaman.
+  useEffect(() => {
+    const gainRef = alarmGainRef;
+    const timerRef = vibrateTimerRef;
+    return () => {
+      try {
+        gainRef.current?.disconnect();
+      } catch {}
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   // ---- Derivasi tampilan ----
   const { doneCount, volume } = useMemo(() => {
@@ -235,6 +289,7 @@ export default function SessionView({ data }: { data: SessionData }) {
 
   function toggleSet(exId: string, setIdx: number, restSeconds: number, exName: string) {
     ensureAudio();
+    stopAlarm();
     if (
       typeof Notification !== "undefined" &&
       Notification.permission === "default"
@@ -286,6 +341,7 @@ export default function SessionView({ data }: { data: SessionData }) {
       localStorage.removeItem(storageKey);
     } catch {}
     setRest(null);
+    stopAlarm();
     setSummary({ volume: res.volume, streak: res.streak });
   }
 
@@ -549,6 +605,45 @@ export default function SessionView({ data }: { data: SessionData }) {
 
       {/* rest timer + finish */}
       <div style={{ padding: "10px 20px 26px", background: "linear-gradient(0deg,var(--phone-bg) 60%,transparent)" }}>
+        {alarming && (
+          <div
+            style={{
+              borderRadius: 16,
+              border: "1.5px solid rgba(255,59,48,.55)",
+              background: "rgba(255,59,48,.14)",
+              padding: "12px 14px",
+              marginBottom: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 11,
+            }}
+          >
+            {/* hanya ikon yang berdenyut — tombol Matikan harus diam agar mudah ditekan */}
+            <span style={{ fontSize: 20, animation: "pk-pulse 1.1s ease-in-out infinite", display: "inline-block" }}>⏰</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ font: "800 14.5px var(--font-archivo), sans-serif", color: "#ff5b52" }}>
+                Istirahat selesai!
+              </div>
+              <div style={{ font: "600 11.5px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+                Gas set berikutnya 💪
+              </div>
+            </div>
+            <button
+              onClick={stopAlarm}
+              style={{
+                flex: "none",
+                padding: "11px 18px",
+                borderRadius: 12,
+                background: "#ff3b30",
+                color: "#fff",
+                font: "800 13.5px var(--font-archivo), sans-serif",
+                boxShadow: "0 8px 20px -8px rgba(255,59,48,.7)",
+              }}
+            >
+              Matikan
+            </button>
+          </div>
+        )}
         {rest && (
           <div
             style={{
