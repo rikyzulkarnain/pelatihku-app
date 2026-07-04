@@ -106,6 +106,11 @@ const TEMPLATES: Record<string, MovementPattern[]> = {
   Push: ["push_horizontal", "push_vertical", "isolation_chest", "isolation_triceps"],
   Pull: ["pull_vertical", "pull_horizontal", "isolation_back", "isolation_biceps"],
   Legs: ["squat", "hinge", "isolation_legs", "calf", "core"],
+  // Fat loss / kebugaran: hari kondisi — core + kardio panjang (finisher di-boost).
+  "Kondisi & Core": ["core", "core", "isolation_legs"],
+  // Strength: hari kekuatan murni — compound besar tanpa isolasi lengan.
+  "Kekuatan Atas": ["push_horizontal", "pull_horizontal", "push_vertical", "pull_vertical", "core"],
+  "Kekuatan Bawah": ["squat", "hinge", "isolation_legs", "core"],
   // Fertility (pria): compound besar mendukung testosteron + kardio ringan.
   "Kesuburan Pria Bawah": ["squat", "hinge", "isolation_legs", "core", "cardio"],
   "Kesuburan Pria Atas": ["push_horizontal", "pull_horizontal", "push_vertical", "pull_vertical", "core"],
@@ -116,7 +121,13 @@ const TEMPLATES: Record<string, MovementPattern[]> = {
   "Kesuburan Wanita C": ["hinge", "isolation_legs", "push_horizontal", "core", "cardio"],
 };
 
-type DaySpec = { label: string; focus: string; templateKey: string };
+type DaySpec = {
+  label: string;
+  focus: string;
+  templateKey: string;
+  /** Hari kondisi: durasi kardio finisher ditambah (fat loss/kebugaran/toning). */
+  cardioBoost?: boolean;
+};
 
 function buildFertilityDaySpecs(
   gender: Gender,
@@ -144,6 +155,11 @@ function buildFertilityDaySpecs(
   return { split: "full_body", days };
 }
 
+// ── Struktur hari per TUJUAN — mengikuti praktik penyusunan program pelatih:
+// fat loss/kebugaran → full body frekuensi tinggi + hari kondisi (kardio+core);
+// hipertrofi → volume split (FB → PPL/UL); strength → hari kekuatan compound
+// dengan pemulihan penuh; toning → campuran UL + hari kondisi; kesuburan →
+// desain khusus gender (lihat buildFertilityDaySpecs).
 function buildDaySpecs(
   goal: Goal,
   gender: Gender,
@@ -156,24 +172,120 @@ function buildDaySpecs(
   if (goal === "kesuburan") {
     return buildFertilityDaySpecs(gender, frequency);
   }
-  if (frequency <= 3) {
-    const letters = ["A", "B", "C"].slice(0, frequency);
+
+  const freq = Math.min(Math.max(frequency, 1), 6);
+  const fullBody = (letter: "A" | "B" | "C"): DaySpec => ({
+    label: `Full Body ${letter}`,
+    focus: "Seluruh tubuh",
+    templateKey: `Full Body ${letter}`,
+  });
+  const kondisi = (suffix = ""): DaySpec => ({
+    label: `Kondisi & Core${suffix}`,
+    focus: "Kardio, core & daya tahan",
+    templateKey: "Kondisi & Core",
+    cardioBoost: true,
+  });
+  const upper = (s: string): DaySpec => ({
+    label: `Upper ${s}`,
+    focus: "Dada, punggung, bahu, lengan",
+    templateKey: "Upper",
+  });
+  const lower = (s: string): DaySpec => ({
+    label: `Lower ${s}`,
+    focus: "Kaki & core",
+    templateKey: "Lower",
+  });
+  const fbLetters = (n: number) =>
+    (["A", "B", "C"] as const).slice(0, Math.min(n, 3)).map(fullBody);
+
+  // ── Turun lemak & kebugaran umum: full body (frekuensi per otot tinggi,
+  // kalori terbakar besar) + hari kondisi khusus mulai 4x/minggu.
+  if (goal === "turun_lemak" || goal === "kebugaran_umum") {
+    if (freq <= 3) return { split: "full_body", days: fbLetters(freq) };
+    if (freq === 4)
+      return {
+        split: "full_body",
+        days: [fullBody("A"), fullBody("B"), kondisi(), fullBody("C")],
+      };
+    if (freq === 5)
+      return {
+        split: "full_body",
+        days: [fullBody("A"), fullBody("B"), kondisi(), fullBody("C"), kondisi(" 2")],
+      };
     return {
-      split: "full_body",
-      days: letters.map((l) => ({
-        label: `Full Body ${l}`,
-        focus: "Seluruh tubuh",
-        templateKey: `Full Body ${l}`,
-      })),
+      split: "upper_lower",
+      days: [upper("A"), lower("A"), kondisi(), upper("B"), lower("B"), kondisi(" 2")],
     };
   }
-  const upperLower: DaySpec[] = [
-    { label: "Upper A", focus: "Dada, punggung, bahu, lengan", templateKey: "Upper" },
-    { label: "Lower A", focus: "Kaki & core", templateKey: "Lower" },
-    { label: "Upper B", focus: "Dada, punggung, bahu, lengan", templateKey: "Upper" },
-    { label: "Lower B", focus: "Kaki & core", templateKey: "Lower" },
-  ];
-  if (frequency === 4) {
+
+  // ── Strength: hari kekuatan murni — compound besar, tanpa isolasi lengan,
+  // istirahat panjang. 5-6x menambah hari teknik/aksesori, bukan volume berat.
+  if (goal === "strength") {
+    if (freq <= 3)
+      return {
+        split: "full_body",
+        days: ["A", "B", "C"].slice(0, freq).map((l, i) => ({
+          label: `Kekuatan Full ${l}`,
+          focus: "Compound berat seluruh tubuh",
+          templateKey: `Full Body ${["A", "B", "C"][i]}`,
+        })),
+      };
+    const strengthFour: DaySpec[] = [
+      { label: "Kekuatan Bawah A", focus: "Squat, hinge & core", templateKey: "Kekuatan Bawah" },
+      { label: "Kekuatan Atas A", focus: "Press & tarikan berat", templateKey: "Kekuatan Atas" },
+      { label: "Kekuatan Bawah B", focus: "Squat, hinge & core", templateKey: "Kekuatan Bawah" },
+      { label: "Kekuatan Atas B", focus: "Press & tarikan berat", templateKey: "Kekuatan Atas" },
+    ];
+    if (freq === 4) return { split: "upper_lower", days: strengthFour };
+    const teknik: DaySpec = {
+      label: "Teknik & Aksesori",
+      focus: "Perbaiki teknik & titik lemah",
+      templateKey: "Full Body C",
+    };
+    if (freq === 5) return { split: "upper_lower", days: [...strengthFour, teknik] };
+    return {
+      split: "upper_lower",
+      days: [
+        ...strengthFour,
+        teknik,
+        { label: "Kekuatan Full", focus: "Compound berat seluruh tubuh", templateKey: "Full Body A" },
+      ],
+    };
+  }
+
+  // ── Toning: full body di frekuensi rendah, Upper/Lower + hari kondisi di
+  // frekuensi tinggi (definisi butuh kardio, bukan volume beban maksimal).
+  if (goal === "toning") {
+    if (freq <= 3) return { split: "full_body", days: fbLetters(freq) };
+    if (freq === 4)
+      return { split: "upper_lower", days: [upper("A"), lower("A"), upper("B"), lower("B")] };
+    if (freq === 5)
+      return {
+        split: "upper_lower",
+        days: [upper("A"), lower("A"), kondisi(), upper("B"), lower("B")],
+      };
+    return {
+      split: "upper_lower",
+      days: [upper("A"), lower("A"), kondisi(), upper("B"), lower("B"), kondisi(" 2")],
+    };
+  }
+
+  // ── Naik massa (hipertrofi): progresi split klasik sesuai frekuensi & level.
+  if (freq <= 2) return { split: "full_body", days: fbLetters(freq) };
+  if (freq === 3) {
+    // Menengah/mahir 3x: PPL klasik; pemula tetap full body (frekuensi 2x/otot).
+    if (level === "pemula") return { split: "full_body", days: fbLetters(3) };
+    return {
+      split: "ppl",
+      days: [
+        { label: "Push", focus: "Dada, bahu, trisep", templateKey: "Push" },
+        { label: "Pull", focus: "Punggung, bisep", templateKey: "Pull" },
+        { label: "Legs", focus: "Kaki & core", templateKey: "Legs" },
+      ],
+    };
+  }
+  const upperLower: DaySpec[] = [upper("A"), lower("A"), upper("B"), lower("B")];
+  if (freq === 4) {
     return { split: "upper_lower", days: upperLower };
   }
   // Pemula 5-6 hari: tetap Upper/Lower (recovery lebih aman daripada PPL,
@@ -182,16 +294,12 @@ function buildDaySpecs(
     return {
       split: "upper_lower",
       days:
-        frequency === 5
+        freq === 5
           ? [
               ...upperLower,
               { label: "Full Body", focus: "Seluruh tubuh", templateKey: "Full Body A" },
             ]
-          : [
-              ...upperLower,
-              { label: "Upper C", focus: "Dada, punggung, bahu, lengan", templateKey: "Upper" },
-              { label: "Lower C", focus: "Kaki & core", templateKey: "Lower" },
-            ],
+          : [...upperLower, upper("C"), lower("C")],
     };
   }
   // 5-6 days -> PPL
@@ -200,7 +308,7 @@ function buildDaySpecs(
     { label: "Pull", focus: "Punggung, bisep", templateKey: "Pull" },
     { label: "Legs", focus: "Kaki & core", templateKey: "Legs" },
   ];
-  if (frequency === 5) {
+  if (freq === 5) {
     return {
       split: "ppl",
       days: [
@@ -244,7 +352,9 @@ function isHighImpact(e: Exercise): boolean {
     e.slug.includes("burpee") ||
     e.slug.includes("hop") ||
     e.slug.includes("plyo") ||
-    e.slug.includes("climber")
+    e.slug.includes("climber") ||
+    e.slug.includes("high-knees") ||
+    e.slug.includes("sprint")
   );
 }
 
@@ -300,12 +410,21 @@ function pickExercise(
     if (prefA !== prefB) {
       return (prefA === -1 ? 99 : prefA) - (prefB === -1 ? 99 : prefB);
     }
+    // Level terdekat dengan user menang (menengah dapat gerakan menengah,
+    // bukan versi assisted pemula; fallback ke atas pilih yang paling ringan).
+    const closeA = Math.abs(LEVEL_ORDER[a.level] - LEVEL_ORDER[ctx.level]);
+    const closeB = Math.abs(LEVEL_ORDER[b.level] - LEVEL_ORDER[ctx.level]);
+    if (closeA !== closeB) return closeA - closeB;
     const tier = EQUIPMENT_TIER[b.equipment] - EQUIPMENT_TIER[a.equipment];
     if (tier !== 0) return tier;
     return a.slug.localeCompare(b.slug);
   });
 
-  return candidates[0];
+  // Jangan paksakan gerakan 2 level di atas kemampuan (mis. pemula tidak
+  // pernah diberi gerakan mahir) — lebih baik slot dikosongkan.
+  const best = candidates[0];
+  if (LEVEL_ORDER[best.level] - LEVEL_ORDER[ctx.level] >= 2) return null;
+  return best;
 }
 
 function computeBMI(
@@ -421,6 +540,15 @@ export function generateProgram(
     (e) => LEVEL_ORDER[e.level] <= LEVEL_ORDER[level],
   );
   if (cardioAtLevel.length > 0) cardioChoices = cardioAtLevel;
+  // Finisher bertarget MENIT harus steady-state (jalan cepat/mesin kardio/
+  // lompat tali) — gerakan burst (high knees, burpee, jumping jack) tidak
+  // masuk akal dilakukan 15-30 menit nonstop.
+  const steadyState = cardioChoices.filter(
+    (e) =>
+      e.equipment === "cardio" ||
+      ["brisk-walk", "jump-rope", "shadow-boxing"].includes(e.slug),
+  );
+  if (steadyState.length > 0) cardioChoices = steadyState;
 
   // Slug yang sudah dipakai di hari-hari sebelumnya minggu ini — dipakai
   // pickExercise agar tiap hari memakai variasi berbeda selama pool cukup.
@@ -428,7 +556,7 @@ export function generateProgram(
 
   const days: GeneratedDay[] = daySpecs.map((spec, dayIdx) => {
     const patterns = [...(TEMPLATES[spec.templateKey] ?? [])];
-    const isLegDay = /Lower|Legs|Full Body/.test(spec.templateKey);
+    const isLegDay = /Lower|Legs|Full Body|Kondisi|Kekuatan Bawah/.test(spec.templateKey);
     if (gluteEmphasis && isLegDay && !patterns.includes("hinge")) {
       patterns.splice(Math.min(2, patterns.length), 0, "hinge");
     }
@@ -498,6 +626,8 @@ export function generateProgram(
         ? cardioChoices[dayIdx % cardioChoices.length]
         : null;
     if (params.cardio && cardio) {
+      // Hari "Kondisi & Core": porsi kardio lebih panjang — inilah inti harinya.
+      const boost = spec.cardioBoost ? 10 : 0;
       generated.push({
         exercise_id: cardio.id,
         slug: cardio.slug,
@@ -506,8 +636,8 @@ export function generateProgram(
         equipment: cardio.equipment,
         order_index: order++,
         target_sets: 1,
-        target_rep_low: cardioLow,
-        target_rep_high: cardioHigh,
+        target_rep_low: cardioLow + boost,
+        target_rep_high: cardioHigh + boost,
         rest_seconds: 60,
         notes: lowImpact
           ? "Penutup: kardio low-impact intensitas ringan-sedang (menit)"
