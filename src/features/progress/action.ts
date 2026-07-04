@@ -17,6 +17,8 @@ export type ProgressData = {
   name: string;
   goal: string | null;
   experienceLevel: string | null;
+  /** Target sesi per minggu dari program aktif (default 3). */
+  weekGoal: number;
   totalSessions: number;
   longestStreak: number;
   currentStreak: number;
@@ -74,6 +76,7 @@ export async function getProgressData(): Promise<ProgressData> {
     name: "Atlet",
     goal: null,
     experienceLevel: null,
+    weekGoal: 3,
     totalSessions: 0,
     longestStreak: 0,
     currentStreak: 0,
@@ -92,7 +95,7 @@ export async function getProgressData(): Promise<ProgressData> {
   };
   if (!user) return empty;
 
-  const [{ data: sessions }, { data: weights }, profile, fitness] =
+  const [{ data: sessions }, { data: weights }, profile, fitness, { data: program }] =
     await Promise.all([
       supabase
         .from("workout_sessions")
@@ -109,6 +112,14 @@ export async function getProgressData(): Promise<ProgressData> {
         .returns<BodyweightLog[]>(),
       getProfile(),
       getFitnessProfile(),
+      supabase
+        .from("programs")
+        .select("frequency_per_week")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
   const completed = sessions ?? [];
@@ -178,6 +189,7 @@ export async function getProgressData(): Promise<ProgressData> {
     name: profile?.name ?? "Atlet",
     goal: fitness?.goal ?? null,
     experienceLevel: fitness?.experience_level ?? null,
+    weekGoal: program?.frequency_per_week ?? 3,
     totalSessions: completed.length,
     longestStreak: longestStreakFrom(completedDates),
     currentStreak: currentStreakFrom(completedDates),

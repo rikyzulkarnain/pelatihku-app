@@ -116,13 +116,19 @@ export async function getHomeData(): Promise<HomeData> {
       .eq("log_date", format(new Date(), "yyyy-MM-dd")),
     supabase
       .from("set_logs")
-      .select("created_at, exercise:exercises!inner(muscle_group, category)")
+      .select(
+        "created_at, exercise:exercises!inner(muscle_group, category), session:workout_sessions!inner(status)",
+      )
       .eq("user_id", user.id)
       .gte("created_at", cutoff48h)
       .order("created_at", { ascending: false })
       .limit(300)
       .returns<
-        { created_at: string; exercise: { muscle_group: string; category: string } }[]
+        {
+          created_at: string;
+          exercise: { muscle_group: string; category: string };
+          session: { status: string };
+        }[]
       >(),
   ]);
   const proteinNow = Math.round(
@@ -132,9 +138,12 @@ export async function getHomeData(): Promise<HomeData> {
     (foods ?? []).reduce((acc, f) => acc + Number(f.calories ?? 0), 0),
   );
 
-  // Otot per grup: kapan terakhir dilatih (kardio tidak dihitung melatih otot).
+  // Otot per grup: kapan terakhir dilatih. Hanya sesi yang selesai — sesi
+  // terbengkalai berisi 1-2 set coba-coba jangan mencemari data pemulihan.
+  // Kardio juga tidak dihitung melatih otot.
   const recoveryMap = new Map<string, number>();
   for (const r of recentSets ?? []) {
+    if (r.session?.status !== "completed") continue;
     if (r.exercise?.category === "cardio") continue;
     const muscle = r.exercise?.muscle_group;
     if (!muscle || recoveryMap.has(muscle)) continue;

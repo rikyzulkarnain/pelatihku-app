@@ -9,6 +9,8 @@ import {
   updateBodyProfile,
 } from "@/features/progress/action";
 import { GOAL_LABEL, LEVEL_LABEL } from "@/constants/labels";
+import { nextLevelTarget } from "@/features/progress/level";
+import { ExperienceLevel } from "@/types/profile";
 import { formatNumber } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -197,6 +199,13 @@ export default function ProgressView({ data }: { data: ProgressData }) {
         <Stat label="Streak saat ini" value={`${data.currentStreak}🔥`} color="#ff9a5c" />
         <Stat label="Streak terpanjang" value={`${data.longestStreak}🔥`} color="#ff9a5c" />
       </div>
+
+      {/* target menuju level berikutnya */}
+      <LevelTargetCard
+        level={(data.experienceLevel as ExperienceLevel | null) ?? "pemula"}
+        totalSessions={data.totalSessions}
+        weekGoal={data.weekGoal}
+      />
 
       {/* physical stats */}
       <div style={{ marginTop: 14, borderRadius: 20, padding: 18, background: "var(--surface)", border: "1px solid var(--line2)" }}>
@@ -597,6 +606,74 @@ function Stat({
       <div style={{ font: "900 26px var(--font-archivo), sans-serif", color, marginTop: 4 }}>
         {value}
         {suffix && <span style={{ fontSize: 13, color: "var(--dim)" }}>{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+function LevelTargetCard({
+  level,
+  totalSessions,
+  weekGoal,
+}: {
+  level: ExperienceLevel;
+  totalSessions: number;
+  weekGoal: number;
+}) {
+  const target = nextLevelTarget(level);
+  const isMax = target.next === null;
+  const pct = isMax
+    ? 100
+    : Math.min(100, Math.round((totalSessions / target.sessionsRequired) * 100));
+  const remainingSessions = Math.max(0, target.sessionsRequired - totalSessions);
+  const remainingWeeks = Math.ceil(remainingSessions / Math.max(1, weekGoal));
+
+  return (
+    <div style={{ marginTop: 14, borderRadius: 20, padding: 18, background: "var(--surface)", border: "1px solid var(--line2)" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ font: "700 14px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+          {isMax ? "Level maksimal 👑" : `Menuju level ${LEVEL_LABEL[target.next!] ?? target.next}`}
+        </span>
+        <span style={{ font: "700 12px var(--font-archivo), sans-serif", color: "var(--acc)" }}>
+          {LEVEL_LABEL[level] ?? level}
+        </span>
+      </div>
+
+      {!isMax && (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "10px 0 6px" }}>
+            <span style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+              {totalSessions} / {target.sessionsRequired} sesi
+            </span>
+            <span style={{ font: "700 12px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+              {pct}%
+            </span>
+          </div>
+          <div style={{ height: 8, borderRadius: 8, background: "var(--track)", overflow: "hidden", marginBottom: 10 }}>
+            <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: "var(--lime)", transition: "width .4s ease" }} />
+          </div>
+          {remainingSessions > 0 ? (
+            <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--dim)", marginBottom: 12 }}>
+              Sisa {remainingSessions} sesi lagi — ±{remainingWeeks} minggu dengan {weekGoal} sesi/minggu.
+            </div>
+          ) : (
+            <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--acc)", marginBottom: 12 }}>
+              Jumlah sesi tercapai! Pastikan kriteria di bawah juga terpenuhi, lalu naikkan
+              level lewat reset tujuan / program berikutnya.
+            </div>
+          )}
+        </>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: isMax ? 10 : 0 }}>
+        {target.criteria.map((c) => (
+          <div key={c} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <span style={{ color: "var(--acc)", fontSize: 12, lineHeight: 1.6 }}>◆</span>
+            <span style={{ font: "500 12.5px/1.55 var(--font-jakarta), sans-serif", color: "var(--ink2)" }}>
+              {c}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

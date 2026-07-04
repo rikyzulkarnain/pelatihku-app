@@ -209,7 +209,9 @@ export default async function HomePage() {
                   }}
                 >
                   {ready ? "✅" : "⏳"} {MUSCLE_LABEL[r.muscle] ?? r.muscle}
-                  {!ready && <span style={{ fontWeight: 600, opacity: 0.85 }}>· pulih ~{remaining}j lagi</span>}
+                  <span style={{ fontWeight: 600, opacity: 0.85 }}>
+                    · dilatih ~{r.hoursAgo}j lalu{ready ? " · siap" : ` · pulih ~${remaining}j lagi`}
+                  </span>
                 </span>
               );
             })}

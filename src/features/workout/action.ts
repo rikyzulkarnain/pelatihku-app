@@ -218,7 +218,7 @@ async function computeRestWarning(
   const { data: recent } = await supabase
     .from("set_logs")
     .select(
-      "created_at, exercise:exercises!inner(muscle_group, category), session:workout_sessions!inner(program_day_id)",
+      "created_at, exercise:exercises!inner(muscle_group, category), session:workout_sessions!inner(program_day_id, status)",
     )
     .eq("user_id", userId)
     .neq("session_id", sessionId)
@@ -229,7 +229,7 @@ async function computeRestWarning(
       {
         created_at: string;
         exercise: { muscle_group: string; category: string };
-        session: { program_day_id: string | null };
+        session: { program_day_id: string | null; status: string };
       }[]
     >();
 
@@ -239,6 +239,9 @@ async function computeRestWarning(
     // Sesi lain dari HARI PROGRAM yang sama = workout ini juga (mis. sesi
     // yang terputus lalu dimulai ulang) — bukan latihan terpisah.
     if (r.session?.program_day_id === programDayId) continue;
+    // Hanya sesi yang benar-benar diselesaikan; sesi terbengkalai berisi 1-2
+    // set coba-coba jangan dianggap "melatih otot".
+    if (r.session?.status !== "completed") continue;
     // Kardio (jump rope, lari, dst.) tidak dihitung melatih otot.
     if (r.exercise?.category === "cardio") continue;
     const muscle = r.exercise?.muscle_group;
@@ -267,6 +270,10 @@ export type SetPayload = {
  * Snapshot penuh set sebuah sesi dari state lokal client → server.
  * Idempotent (hapus lalu tulis ulang), jadi aman dipanggil berulang sebagai
  * background sync maupun flush terakhir saat menyelesaikan sesi.
+ *
+ * created_at set yang sudah ada DIPERTAHANKAN — kalau ikut ter-reset ke waktu
+ * sync, riwayat "kapan otot terakhir dilatih" (rest warning & widget
+ * pemulihan) jadi kacau hanya karena halaman sesi lama dibuka ulang.
  */
 async function replaceSessionSets(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -274,6 +281,15 @@ async function replaceSessionSets(
   sessionId: string,
   sets: SetPayload[],
 ): Promise<string | null> {
+  const { data: existing } = await supabase
+    .from("set_logs")
+    .select("exercise_id, set_index, created_at")
+    .eq("session_id", sessionId)
+    .eq("user_id", userId);
+  const originalCreatedAt = new Map(
+    (existing ?? []).map((e) => [`${e.exercise_id}|${e.set_index}`, e.created_at as string]),
+  );
+
   const { error: delError } = await supabase
     .from("set_logs")
     .delete()
@@ -291,6 +307,9 @@ async function replaceSessionSets(
       set_index: s.setIndex,
       weight_kg: s.weightKg,
       reps: s.reps,
+      created_at:
+        originalCreatedAt.get(`${s.exerciseId}|${s.setIndex}`) ??
+        new Date().toISOString(),
     })),
   );
   return error?.message ?? null;
