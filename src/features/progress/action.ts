@@ -19,6 +19,8 @@ export type ProgressData = {
   experienceLevel: string | null;
   /** Target sesi per minggu dari program aktif (default 3). */
   weekGoal: number;
+  /** Jumlah minggu dengan ≥2 sesi selesai — dasar progres kenaikan level. */
+  consistentWeeks: number;
   totalSessions: number;
   longestStreak: number;
   currentStreak: number;
@@ -77,6 +79,7 @@ export async function getProgressData(): Promise<ProgressData> {
     goal: null,
     experienceLevel: null,
     weekGoal: 3,
+    consistentWeeks: 0,
     totalSessions: 0,
     longestStreak: 0,
     currentStreak: 0,
@@ -179,6 +182,17 @@ export async function getProgressData(): Promise<ProgressData> {
     (d) => d >= thisWeekStart,
   ).length;
 
+  // Minggu "konsisten" = minimal 2 sesi selesai dalam satu minggu ISO —
+  // dasar progres kenaikan level (standar pakar: durasi konsisten, bukan
+  // sekadar total sesi).
+  const weekSessionCount = new Map<number, number>();
+  for (const d of completedDates) {
+    const key = startOfISOWeek(d).getTime();
+    weekSessionCount.set(key, (weekSessionCount.get(key) ?? 0) + 1);
+  }
+  const consistentWeeks = [...weekSessionCount.values()].filter((c) => c >= 2)
+    .length;
+
   const heightCm = fitness?.height_cm ?? null;
   const bmi =
     latestWeight && heightCm
@@ -190,6 +204,7 @@ export async function getProgressData(): Promise<ProgressData> {
     goal: fitness?.goal ?? null,
     experienceLevel: fitness?.experience_level ?? null,
     weekGoal: program?.frequency_per_week ?? 3,
+    consistentWeeks,
     totalSessions: completed.length,
     longestStreak: longestStreakFrom(completedDates),
     currentStreak: currentStreakFrom(completedDates),

@@ -203,8 +203,7 @@ export default function ProgressView({ data }: { data: ProgressData }) {
       {/* target menuju level berikutnya */}
       <LevelTargetCard
         level={(data.experienceLevel as ExperienceLevel | null) ?? "pemula"}
-        totalSessions={data.totalSessions}
-        weekGoal={data.weekGoal}
+        consistentWeeks={data.consistentWeeks}
       />
 
       {/* physical stats */}
@@ -613,20 +612,18 @@ function Stat({
 
 function LevelTargetCard({
   level,
-  totalSessions,
-  weekGoal,
+  consistentWeeks,
 }: {
   level: ExperienceLevel;
-  totalSessions: number;
-  weekGoal: number;
+  consistentWeeks: number;
 }) {
   const target = nextLevelTarget(level);
   const isMax = target.next === null;
   const pct = isMax
     ? 100
-    : Math.min(100, Math.round((totalSessions / target.sessionsRequired) * 100));
-  const remainingSessions = Math.max(0, target.sessionsRequired - totalSessions);
-  const remainingWeeks = Math.ceil(remainingSessions / Math.max(1, weekGoal));
+    : Math.min(100, Math.round((consistentWeeks / target.weeksRequired) * 100));
+  const remainingWeeks = Math.max(0, target.weeksRequired - consistentWeeks);
+  const remainingMonths = Math.max(1, Math.round(remainingWeeks / 4.33));
 
   return (
     <div style={{ marginTop: 14, borderRadius: 20, padding: 18, background: "var(--surface)", border: "1px solid var(--line2)" }}>
@@ -643,7 +640,7 @@ function LevelTargetCard({
         <>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "10px 0 6px" }}>
             <span style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
-              {totalSessions} / {target.sessionsRequired} sesi
+              {consistentWeeks} / {target.weeksRequired} minggu konsisten
             </span>
             <span style={{ font: "700 12px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
               {pct}%
@@ -652,14 +649,16 @@ function LevelTargetCard({
           <div style={{ height: 8, borderRadius: 8, background: "var(--track)", overflow: "hidden", marginBottom: 10 }}>
             <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: "var(--lime)", transition: "width .4s ease" }} />
           </div>
-          {remainingSessions > 0 ? (
-            <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--dim)", marginBottom: 12 }}>
-              Sisa {remainingSessions} sesi lagi — ±{remainingWeeks} minggu dengan {weekGoal} sesi/minggu.
+          {remainingWeeks > 0 ? (
+            <div style={{ font: "600 12px/1.55 var(--font-jakarta), sans-serif", color: "var(--dim)", marginBottom: 12 }}>
+              Minggu dihitung konsisten bila ≥2 sesi selesai. Sisa ±{remainingWeeks} minggu
+              (≈{remainingMonths} bulan). Standar pelatih: level naik dari lama tubuh
+              beradaptasi — tidak terkait target deadline tujuanmu.
             </div>
           ) : (
             <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--acc)", marginBottom: 12 }}>
-              Jumlah sesi tercapai! Pastikan kriteria di bawah juga terpenuhi, lalu naikkan
-              level lewat reset tujuan / program berikutnya.
+              Durasi konsisten tercapai! Pastikan kriteria di bawah juga terpenuhi, lalu
+              naikkan level lewat reset tujuan / program berikutnya.
             </div>
           )}
         </>
