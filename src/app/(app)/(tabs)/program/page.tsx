@@ -1,5 +1,5 @@
 import { getActiveProgram, getProgressionStatus } from "@/features/program/action";
-import DayCard from "./_components/day-card";
+import DayList from "./_components/day-list";
 import ProgressionCard from "./_components/progression-card";
 
 export default async function ProgramPage() {
@@ -52,16 +52,15 @@ export default async function ProgramPage() {
           />
         )}
 
-        {program.days.map((d) => (
-          <DayCard
-            key={d.id}
-            programId={program.id}
-            dayId={d.id}
-            num={d.day_index}
-            name={d.label}
-            meta={`${d.focus ?? ""} · ${d.exercises.length} gerakan`}
-          />
-        ))}
+        <DayList
+          programId={program.id}
+          days={program.days.map((d) => ({
+            id: d.id,
+            num: d.day_index,
+            name: d.label,
+            meta: `${d.focus ?? ""} · ${d.exercises.length} gerakan`,
+          }))}
+        />
 
         <div
           style={{

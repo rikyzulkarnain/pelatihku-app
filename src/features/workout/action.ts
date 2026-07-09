@@ -5,23 +5,60 @@ import { getCurrentUser } from "@/lib/supabase/auth";
 import { MUSCLE_LABEL } from "@/constants/labels";
 import { Exercise } from "@/types/program";
 import { OverloadSuggestion, SetLog } from "@/types/workout";
+import { format } from "date-fns";
 import { revalidatePath } from "next/cache";
 import { suggestNextSet } from "./overload";
 
+// Ubah "yyyy-MM-dd" (waktu lokal) → ISO pada pukul 12.00 lokal hari itu, supaya
+// sesi yang dicatat mundur (backdate) mendarat di tanggal kalender yang benar
+// terlepas dari zona waktu.
+function localNoonIso(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0).toISOString();
+}
+
+// Batas awal & akhir sebuah hari kalender lokal dalam ISO (untuk mencari sesi
+// yang sudah dimulai pada tanggal tsb.).
+function dayBoundsIso(dateStr: string): { start: string; end: string } {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return {
+    start: new Date(y, m - 1, d, 0, 0, 0, 0).toISOString(),
+    end: new Date(y, m - 1, d, 23, 59, 59, 999).toISOString(),
+  };
+}
+
+/**
+ * Mulai / lanjutkan sesi untuk sebuah hari program.
+ *
+ * `sessionDate` (yyyy-MM-dd) opsional: bila diisi tanggal lampau, sesi dicatat
+ * seolah terjadi pada tanggal itu — `started_at` dipatok ke tanggal tsb., dan
+ * saat diselesaikan `completed_at` + `created_at` tiap set ikut mundur. Berguna
+ * untuk mencatat latihan yang kelewat belum sempat disimpan.
+ */
 export async function startOrResumeSession(
   programId: string,
   programDayId: string,
+  sessionDate?: string,
 ): Promise<{ sessionId?: string; error?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir, silakan masuk lagi." };
 
+  const today = format(new Date(), "yyyy-MM-dd");
+  const backdate = !!sessionDate && sessionDate !== today;
+
+  // Lanjutkan sesi yang belum selesai untuk hari program ini, tapi hanya yang
+  // dimulai pada tanggal yang dimaksud — agar catatan lampau tidak menyatu
+  // dengan sesi "hari ini" untuk hari program yang sama (dan sebaliknya).
+  const { start, end } = dayBoundsIso(sessionDate ?? today);
   const { data: existing } = await supabase
     .from("workout_sessions")
     .select("id")
     .eq("user_id", user.id)
     .eq("program_day_id", programDayId)
     .eq("status", "in_progress")
+    .gte("started_at", start)
+    .lte("started_at", end)
     .order("started_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -35,6 +72,7 @@ export async function startOrResumeSession(
       program_id: programId,
       program_day_id: programDayId,
       status: "in_progress",
+      ...(backdate ? { started_at: localNoonIso(sessionDate!) } : {}),
     })
     .select("id")
     .single();
@@ -281,14 +319,26 @@ async function replaceSessionSets(
   sessionId: string,
   sets: SetPayload[],
 ): Promise<string | null> {
-  const { data: existing } = await supabase
-    .from("set_logs")
-    .select("exercise_id, set_index, created_at")
-    .eq("session_id", sessionId)
-    .eq("user_id", userId);
+  // Ambil set lama + waktu mulai sesi sekaligus. Set BARU dipatok ke
+  // `started_at` sesi (bukan now()) supaya riwayat "kapan otot terakhir
+  // dilatih" mengikuti tanggal sesi — penting untuk sesi yang dicatat mundur.
+  const [{ data: existing }, { data: sess }] = await Promise.all([
+    supabase
+      .from("set_logs")
+      .select("exercise_id, set_index, created_at")
+      .eq("session_id", sessionId)
+      .eq("user_id", userId),
+    supabase
+      .from("workout_sessions")
+      .select("started_at")
+      .eq("id", sessionId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
   const originalCreatedAt = new Map(
     (existing ?? []).map((e) => [`${e.exercise_id}|${e.set_index}`, e.created_at as string]),
   );
+  const baseCreatedAt = (sess?.started_at as string) ?? new Date().toISOString();
 
   const { error: delError } = await supabase
     .from("set_logs")
@@ -308,8 +358,7 @@ async function replaceSessionSets(
       weight_kg: s.weightKg,
       reps: s.reps,
       created_at:
-        originalCreatedAt.get(`${s.exerciseId}|${s.setIndex}`) ??
-        new Date().toISOString(),
+        originalCreatedAt.get(`${s.exerciseId}|${s.setIndex}`) ?? baseCreatedAt,
     })),
   );
   return error?.message ?? null;
@@ -360,11 +409,26 @@ export async function completeSession(
     .filter((s) => !s.is_warmup)
     .reduce((acc, s) => acc + Number(s.weight_kg) * s.reps, 0);
 
+  // Sesi yang dicatat mundur (started_at bukan hari ini) diselesaikan pada
+  // tanggalnya sendiri, bukan sekarang — agar streak & dashboard menaruhnya di
+  // hari yang benar.
+  const { data: sess } = await supabase
+    .from("workout_sessions")
+    .select("started_at")
+    .eq("id", sessionId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const startedAt = sess?.started_at ? new Date(sess.started_at as string) : new Date();
+  const completedAt =
+    format(startedAt, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd")
+      ? new Date().toISOString()
+      : startedAt.toISOString();
+
   const { error } = await supabase
     .from("workout_sessions")
     .update({
       status: "completed",
-      completed_at: new Date().toISOString(),
+      completed_at: completedAt,
       total_volume: volume,
     })
     .eq("id", sessionId)

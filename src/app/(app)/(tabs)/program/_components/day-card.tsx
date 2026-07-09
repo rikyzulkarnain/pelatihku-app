@@ -11,19 +11,22 @@ export default function DayCard({
   num,
   name,
   meta,
+  sessionDate,
 }: {
   programId: string;
   dayId: string;
   num: number;
   name: string;
   meta: string;
+  /** Bila diisi (yyyy-MM-dd), sesi dicatat untuk tanggal lampau tsb. */
+  sessionDate?: string;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   async function open() {
     setLoading(true);
-    const res = await startOrResumeSession(programId, dayId);
+    const res = await startOrResumeSession(programId, dayId, sessionDate);
     if (res.error || !res.sessionId) {
       setLoading(false);
       toast.error(res.error ?? "Gagal membuka sesi.");

@@ -1,9 +1,13 @@
 "use client";
 
+import BackdateSelector, {
+  backdateLabel,
+} from "@/components/common/backdate-selector";
 import { FOOD_EXAMPLES } from "@/constants/nutrition-constant";
 import { GOAL_LABEL } from "@/constants/labels";
 import {
   deleteFood,
+  getNutritionLogsForDate,
   logFood,
   NutritionData,
 } from "@/features/nutrition/action";
@@ -15,6 +19,11 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import MealPlanCard from "./meal-plan-card";
 import NutritionChat from "./nutrition-chat";
+
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 type DayLog = {
   id: string;
@@ -57,6 +66,9 @@ export default function NutritionView({ data }: { data: NutritionData }) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
+  const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [dateLoading, setDateLoading] = useState(false);
+  const isToday = selectedDate === todayStr();
   const [logs, setLogs] = useState<DayLog[]>(() =>
     data.logs.map((l) => ({
       id: l.id,
@@ -117,6 +129,26 @@ export default function NutritionView({ data }: { data: NutritionData }) {
     : 0;
   const kcalDash = `${circumference * kcalPct} ${circumference}`;
 
+  // Berpindah tanggal: ambil catatan makan tanggal itu lalu ganti daftar.
+  async function changeDate(date: string) {
+    if (date === selectedDate) return;
+    setSelectedDate(date);
+    setExpanded(false);
+    setDateLoading(true);
+    const fetched = await getNutritionLogsForDate(date);
+    setDateLoading(false);
+    setLogs(
+      fetched.map((l) => ({
+        id: l.id,
+        food_name: l.food_name,
+        protein_g: Number(l.protein_g) || 0,
+        carb_g: Number(l.carb_g) || 0,
+        fat_g: Number(l.fat_g) || 0,
+        calories: Number(l.calories) || 0,
+      })),
+    );
+  }
+
   async function add(food: (typeof FOOD_EXAMPLES)[number]) {
     setAdding(food.name);
     const res = await logFood({
@@ -125,6 +157,7 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       carb_g: food.carb_g,
       fat_g: food.fat_g,
       calories: food.calories,
+      log_date: selectedDate,
     });
     setAdding(null);
     if (res.error || !res.id) {
@@ -153,6 +186,7 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       carb_g: item.carb_g,
       fat_g: item.fat_g,
       calories: item.calories,
+      log_date: selectedDate,
     });
     if (res.error || !res.id) {
       toast.error(res.error ?? "Gagal menyimpan.");
@@ -182,6 +216,7 @@ export default function NutritionView({ data }: { data: NutritionData }) {
       carb_g: g.carb_g,
       fat_g: g.fat_g,
       calories: g.calories,
+      log_date: selectedDate,
     });
     setBusyKey(null);
     if (res.error || !res.id) {
@@ -265,7 +300,30 @@ export default function NutritionView({ data }: { data: NutritionData }) {
           </h1>
         </div>
 
-        {/* catat via chat / suara */}
+        {/* pemilih tanggal — catat makan yang kelewat di hari sebelumnya */}
+        <div style={{ marginBottom: 14 }}>
+          <BackdateSelector value={selectedDate} onChange={changeDate} />
+        </div>
+
+        {!isToday && (
+          <div
+            style={{
+              marginBottom: 14,
+              borderRadius: 14,
+              padding: "11px 14px",
+              background: "rgba(255,154,92,.1)",
+              border: "1px solid rgba(255,154,92,.26)",
+              font: "600 12.5px/1.5 var(--font-jakarta), sans-serif",
+              color: "#ff9a5c",
+            }}
+          >
+            Mencatat asupan untuk <b>{backdateLabel(selectedDate)}</b>. Makanan
+            yang kamu tambahkan masuk ke tanggal itu.
+          </div>
+        )}
+
+        {/* catat via chat / suara — hanya untuk hari ini */}
+        {isToday && (
         <button
           onClick={() => setChatOpen(true)}
           style={{
@@ -329,6 +387,7 @@ export default function NutritionView({ data }: { data: NutritionData }) {
           </div>
           <span style={{ fontSize: 20, color: "var(--acc)" }}>›</span>
         </button>
+        )}
 
         {/* calorie ring */}
         <div
@@ -471,7 +530,7 @@ export default function NutritionView({ data }: { data: NutritionData }) {
               marginBottom: 14,
             }}
           >
-            Asupan hari ini
+            Asupan {isToday ? "hari ini" : backdateLabel(selectedDate)}
           </div>
           <MacroBar
             label="Kalori"
@@ -578,8 +637,8 @@ export default function NutritionView({ data }: { data: NutritionData }) {
           </div>
         </div>
 
-        {/* rekomendasi asupan harian (AI) */}
-        <MealPlanCard onLog={addPlanItem} />
+        {/* rekomendasi asupan harian (AI) — hanya relevan untuk hari ini */}
+        {isToday && <MealPlanCard onLog={addPlanItem} />}
 
         {/* today's food history */}
         <div
@@ -599,7 +658,7 @@ export default function NutritionView({ data }: { data: NutritionData }) {
               color: "var(--dim)",
             }}
           >
-            Sudah dimakan hari ini
+            Sudah dimakan {isToday ? "hari ini" : backdateLabel(selectedDate)}
           </span>
           {groups.length > 0 && (
             <span
@@ -612,7 +671,7 @@ export default function NutritionView({ data }: { data: NutritionData }) {
             </span>
           )}
         </div>
-        {groups.length === 0 ? (
+        {dateLoading ? (
           <div
             style={{
               borderRadius: 16,
@@ -624,8 +683,23 @@ export default function NutritionView({ data }: { data: NutritionData }) {
               color: "var(--dim)",
             }}
           >
-            Belum ada catatan. Ketuk “Catat makan pakai chat / suara” di atas,
-            atau pilih dari daftar di bawah.
+            Memuat catatan {backdateLabel(selectedDate)}…
+          </div>
+        ) : groups.length === 0 ? (
+          <div
+            style={{
+              borderRadius: 16,
+              padding: "18px 16px",
+              background: "var(--surface)",
+              border: "1px dashed var(--line2)",
+              textAlign: "center",
+              font: "500 13px var(--font-jakarta), sans-serif",
+              color: "var(--dim)",
+            }}
+          >
+            {isToday
+              ? "Belum ada catatan. Ketuk “Catat makan pakai chat / suara” di atas, atau pilih dari daftar di bawah."
+              : `Belum ada catatan untuk ${backdateLabel(selectedDate)}. Pilih makanan dari daftar di bawah untuk mencatatnya.`}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

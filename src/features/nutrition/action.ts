@@ -32,9 +32,12 @@ function bmiCategory(bmi: number): string {
   return "obesitas";
 }
 
-export async function getNutritionData(): Promise<NutritionData> {
+export async function getNutritionData(
+  logDate?: string,
+): Promise<NutritionData> {
   const supabase = await createClient();
   const user = await getCurrentUser();
+  const date = logDate ?? format(new Date(), "yyyy-MM-dd");
 
   const empty: NutritionData = {
     calorieTarget: 0,
@@ -67,7 +70,7 @@ export async function getNutritionData(): Promise<NutritionData> {
       .from("nutrition_logs")
       .select("*")
       .eq("user_id", user.id)
-      .eq("log_date", format(new Date(), "yyyy-MM-dd"))
+      .eq("log_date", date)
       .order("created_at", { ascending: false })
       .returns<NutritionLog[]>(),
     supabase
@@ -125,12 +128,33 @@ export async function getNutritionData(): Promise<NutritionData> {
   };
 }
 
+/** Catatan makan untuk satu tanggal (dipakai saat berpindah tanggal di UI). */
+export async function getNutritionLogsForDate(
+  date: string,
+): Promise<NutritionLog[]> {
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const { data } = await supabase
+    .from("nutrition_logs")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("log_date", date)
+    .order("created_at", { ascending: false })
+    .returns<NutritionLog[]>();
+
+  return data ?? [];
+}
+
 export async function logFood(input: {
   food_name: string;
   protein_g: number;
   carb_g?: number;
   fat_g?: number;
   calories: number;
+  /** yyyy-MM-dd — bila diisi tanggal lampau, dicatat mundur ke tanggal itu. */
+  log_date?: string;
 }): Promise<{ error?: string; id?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -140,7 +164,7 @@ export async function logFood(input: {
     .from("nutrition_logs")
     .insert({
       user_id: user.id,
-      log_date: format(new Date(), "yyyy-MM-dd"),
+      log_date: input.log_date ?? format(new Date(), "yyyy-MM-dd"),
       food_name: input.food_name,
       protein_g: input.protein_g,
       carb_g: input.carb_g ?? 0,
