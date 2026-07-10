@@ -84,9 +84,16 @@ export async function startOrResumeSession(
 export type SessionExercise = {
   program_exercise_id: string;
   exercise: Exercise;
+  /** Nama gerakan asli bila slot ini sedang diganti sementara (per tanggal). */
+  swapped_from: string | null;
+  swap_source: "custom" | "ai" | null;
   target_sets: number;
   target_rep_low: number;
   target_rep_high: number;
+  target_intensity_low: number | null;
+  target_intensity_high: number | null;
+  target_rir_low: number | null;
+  target_rir_high: number | null;
   rest_seconds: number;
   notes: string | null;
   suggestion: OverloadSuggestion;
@@ -113,7 +120,7 @@ export async function getSessionData(
   const { data: session } = await supabase
     .from("workout_sessions")
     .select(
-      "id, program_day_id, day:program_days(label, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, rest_seconds, notes, exercise:exercises(*)))",
+      "id, program_day_id, started_at, day:program_days(label, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, target_intensity_low, target_intensity_high, target_rir_low, target_rir_high, rest_seconds, notes, exercise:exercises(*)))",
     )
     .eq("id", sessionId)
     .eq("user_id", user.id)
@@ -127,6 +134,10 @@ export async function getSessionData(
       target_sets: number;
       target_rep_low: number;
       target_rep_high: number;
+      target_intensity_low: number | null;
+      target_intensity_high: number | null;
+      target_rir_low: number | null;
+      target_rir_high: number | null;
       rest_seconds: number | null;
       notes: string | null;
       exercise: Exercise;
@@ -138,8 +149,37 @@ export async function getSessionData(
   const programExercises = (day.exercises ?? []).sort(
     (a, b) => a.order_index - b.order_index,
   );
+
+  // Penggantian sementara (custom/AI) yang berlaku pada TANGGAL sesi ini —
+  // program asli tidak berubah; hanya sesi di tanggal itu memakai pengganti.
+  const sessionDate = format(
+    session.started_at ? new Date(session.started_at as string) : new Date(),
+    "yyyy-MM-dd",
+  );
+  const peIds = programExercises.map((pe) => pe.id);
+  const { data: overrideRows } = peIds.length
+    ? await supabase
+        .from("exercise_overrides")
+        .select("program_exercise_id, source, replacement:exercises(*)")
+        .eq("user_id", user.id)
+        .eq("override_date", sessionDate)
+        .in("program_exercise_id", peIds)
+    : { data: [] };
+  const overrideByPe = new Map(
+    (overrideRows ?? []).map((o) => [
+      o.program_exercise_id as string,
+      {
+        source: o.source as "custom" | "ai",
+        replacement: o.replacement as unknown as Exercise,
+      },
+    ]),
+  );
+
+  const effectiveExercise = (pe: (typeof programExercises)[number]): Exercise =>
+    overrideByPe.get(pe.id)?.replacement ?? pe.exercise;
+
   const exerciseIds = programExercises
-    .map((pe) => pe.exercise?.id)
+    .map((pe) => effectiveExercise(pe)?.id)
     .filter(Boolean) as string[];
 
   // Sisa data diambil paralel dalam satu gelombang: set sesi ini, riwayat
@@ -167,8 +207,8 @@ export async function getSessionData(
           programExercises
             // Kardio bukan latihan beban — jangan dianggap "melatih otot"
             // untuk keperluan rambu recovery 48 jam.
-            .filter((pe) => pe.exercise?.category !== "cardio")
-            .map((pe) => pe.exercise?.muscle_group)
+            .filter((pe) => effectiveExercise(pe)?.category !== "cardio")
+            .map((pe) => effectiveExercise(pe)?.muscle_group)
             .filter(Boolean) as string[],
         ),
       ]),
@@ -185,7 +225,8 @@ export async function getSessionData(
   const exercises: SessionExercise[] = [];
 
   for (const pe of programExercises) {
-    const exercise = pe.exercise;
+    const override = overrideByPe.get(pe.id);
+    const exercise = override?.replacement ?? pe.exercise;
 
     // Set dari sesi terakhir untuk gerakan ini (untuk saran overload).
     const priorSets = priorByExercise.get(exercise.id) ?? [];
@@ -217,9 +258,15 @@ export async function getSessionData(
     exercises.push({
       program_exercise_id: pe.id,
       exercise,
+      swapped_from: override ? pe.exercise.name : null,
+      swap_source: override?.source ?? null,
       target_sets: pe.target_sets,
       target_rep_low: pe.target_rep_low,
       target_rep_high: pe.target_rep_high,
+      target_intensity_low: pe.target_intensity_low,
+      target_intensity_high: pe.target_intensity_high,
+      target_rir_low: pe.target_rir_low,
+      target_rir_high: pe.target_rir_high,
       rest_seconds: pe.rest_seconds ?? 90,
       notes: pe.notes,
       suggestion,

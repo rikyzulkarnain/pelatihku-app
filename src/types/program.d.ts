@@ -79,6 +79,12 @@ export type ProgramExercise = {
   target_sets: number;
   target_rep_low: number;
   target_rep_high: number;
+  /** %1RM batas bawah/atas; null untuk bodyweight & kardio. */
+  target_intensity_low: number | null;
+  target_intensity_high: number | null;
+  /** Reps-in-reserve (proksimitas ke kegagalan); null untuk kardio. */
+  target_rir_low: number | null;
+  target_rir_high: number | null;
   rest_seconds: number;
   notes: string | null;
   exercise?: Exercise;
@@ -104,6 +110,10 @@ export type GeneratedExercise = {
   target_sets: number;
   target_rep_low: number;
   target_rep_high: number;
+  target_intensity_low: number | null;
+  target_intensity_high: number | null;
+  target_rir_low: number | null;
+  target_rir_high: number | null;
   rest_seconds: number;
   notes: string | null;
 };

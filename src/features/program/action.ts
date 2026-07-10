@@ -109,6 +109,10 @@ export async function generateAndCreateProgram(): Promise<{ error?: string }> {
           target_sets: ex.target_sets,
           target_rep_low: ex.target_rep_low,
           target_rep_high: ex.target_rep_high,
+          target_intensity_low: ex.target_intensity_low,
+          target_intensity_high: ex.target_intensity_high,
+          target_rir_low: ex.target_rir_low,
+          target_rir_high: ex.target_rir_high,
           rest_seconds: ex.rest_seconds,
           notes: ex.notes,
         })),
@@ -134,6 +138,10 @@ export type ProgramWithDays = Program & {
       target_sets: number;
       target_rep_low: number;
       target_rep_high: number;
+      target_intensity_low: number | null;
+      target_intensity_high: number | null;
+      target_rir_low: number | null;
+      target_rir_high: number | null;
       rest_seconds: number;
       notes: string | null;
       exercise: Exercise;
@@ -160,7 +168,7 @@ export async function getActiveProgram(): Promise<ProgramWithDays | null> {
   const { data: days } = await supabase
     .from("program_days")
     .select(
-      "*, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, rest_seconds, notes, exercise:exercises(*))",
+      "*, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, target_intensity_low, target_intensity_high, target_rir_low, target_rir_high, rest_seconds, notes, exercise:exercises(*))",
     )
     .eq("program_id", program.id)
     .order("day_index", { ascending: true });

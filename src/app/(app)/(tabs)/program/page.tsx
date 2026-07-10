@@ -45,6 +45,44 @@ export default async function ProgramPage() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 18 }}>
+        {/* Disclaimer medis untuk program persiapan kehamilan (ACOG). */}
+        {program.goal === "kesuburan" && (
+          <div
+            style={{
+              borderRadius: 16,
+              padding: "13px 15px",
+              background: "rgba(255,154,92,.08)",
+              border: "1px solid rgba(255,154,92,.24)",
+              font: "500 12.5px/1.55 var(--font-jakarta), sans-serif",
+              color: "#ff9a5c",
+            }}
+          >
+            Program ini disusun untuk persiapan kehamilan (intensitas moderat,
+            tanpa gerakan berisiko). Tetap <b>konsultasikan ke dokter/ob-gyn</b>{" "}
+            sebelum memulai, terutama bila ada kondisi medis — dan hentikan bila
+            muncul pusing, nyeri, atau perdarahan.
+          </div>
+        )}
+
+        {/* Target aktivitas mingguan WHO: 150-300 menit kardio intensitas sedang. */}
+        {program.includes_cardio && (
+          <div
+            style={{
+              borderRadius: 16,
+              padding: "13px 15px",
+              background: "rgba(201,251,60,.06)",
+              border: "1px solid rgba(201,251,60,.18)",
+              font: "500 12.5px/1.55 var(--font-jakarta), sans-serif",
+              color: "var(--dim)",
+            }}
+          >
+            Kardio penutup di tiap sesi adalah bagian dari target WHO{" "}
+            <b style={{ color: "var(--ink)" }}>150–300 menit/minggu</b> intensitas
+            sedang. Tambah jalan cepat santai di hari istirahat untuk menutup
+            sisanya.
+          </div>
+        )}
+
         {progression?.decision.action === "promote" && (
           <ProgressionCard
             nextLevel={progression.decision.next_level}

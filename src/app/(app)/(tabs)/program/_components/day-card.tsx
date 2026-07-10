@@ -36,46 +36,75 @@ export default function DayCard({
   }
 
   return (
-    <button
-      onClick={open}
-      disabled={loading}
+    <div
       style={{
-        textAlign: "left",
         borderRadius: 20,
         padding: 18,
         background: "var(--surface)",
         border: "1px solid var(--line2)",
         display: "flex",
         alignItems: "center",
-        gap: 16,
+        gap: 14,
         opacity: loading ? 0.7 : 1,
       }}
     >
-      <div
+      <button
+        onClick={open}
+        disabled={loading}
         style={{
-          width: 44,
-          height: 44,
-          borderRadius: 14,
-          flex: "none",
+          textAlign: "left",
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
-          background: "rgba(201,251,60,.12)",
-          color: "var(--acc)",
-          font: "800 18px var(--font-archivo), sans-serif",
+          gap: 16,
+          flex: 1,
+          minWidth: 0,
+          background: "none",
+          border: "none",
+          padding: 0,
         }}
       >
-        {num}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ font: "800 17px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
-          {name}
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 14,
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(201,251,60,.12)",
+            color: "var(--acc)",
+            font: "800 18px var(--font-archivo), sans-serif",
+          }}
+        >
+          {num}
         </div>
-        <div style={{ font: "600 13px var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 3 }}>
-          {meta}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ font: "800 17px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+            {name}
+          </div>
+          <div style={{ font: "600 13px var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 3 }}>
+            {meta}
+          </div>
         </div>
-      </div>
-      <span style={{ color: "var(--faint)", fontSize: 22 }}>›</span>
-    </button>
+        <span style={{ color: "var(--faint)", fontSize: 22 }}>›</span>
+      </button>
+      {/* Kelola latihan hari ini: ganti gerakan (custom / AI), sementara per tanggal. */}
+      <button
+        aria-label={`Atur latihan ${name}`}
+        onClick={() => router.push(`/program/${dayId}`)}
+        style={{
+          flex: "none",
+          padding: "9px 12px",
+          borderRadius: 12,
+          background: "var(--raised)",
+          border: "1px solid var(--line2)",
+          color: "var(--dim)",
+          font: "700 12px var(--font-archivo), sans-serif",
+        }}
+      >
+        Atur
+      </button>
+    </div>
   );
 }

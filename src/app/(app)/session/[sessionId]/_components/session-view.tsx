@@ -1,6 +1,7 @@
 "use client";
 
 import { ExerciseSheet } from "@/components/common/exercise-sheet";
+import { isHoldExercise } from "@/constants/hold-exercises";
 import {
   completeSession,
   SessionData,
@@ -22,6 +23,13 @@ function exKind(ex: Exercise): "weighted" | "bodyweight" | "cardio" {
   if (ex.equipment === "cardio") return "cardio";
   if (ex.equipment === "bodyweight") return "bodyweight";
   return "weighted";
+}
+
+/** Satuan tampilan: hold isometrik (plank dkk) dicatat dalam DETIK tahan. */
+function exUnit(ex: Exercise): "mnt" | "dtk" | "reps" {
+  if (ex.equipment === "cardio") return "mnt";
+  if (isHoldExercise(ex.slug)) return "dtk";
+  return "reps";
 }
 
 function buildInitialState(data: SessionData): SessionState {
@@ -404,12 +412,22 @@ export default function SessionView({ data }: { data: SessionData }) {
         {data.exercises.map((ex) => {
           const s = state[ex.exercise.id];
           const kind = exKind(ex.exercise);
-          const unit = kind === "cardio" ? "mnt" : "reps";
+          const unit = exUnit(ex.exercise);
           const firstUndone = s.sets.findIndex((x) => !x.done);
           const restLabel =
             ex.rest_seconds >= 60
               ? `${Math.round(ex.rest_seconds / 60 * 10) / 10} mnt`.replace(".", ",")
               : `${ex.rest_seconds} dtk`;
+          // Jangkar beban: %1RM untuk gerakan berbeban, RIR (sisa rep sebelum
+          // gagal) untuk semua latihan resistance. Kardio tak punya keduanya.
+          const loadLabel =
+            ex.target_intensity_low != null && ex.target_intensity_high != null
+              ? ` · ${ex.target_intensity_low}-${ex.target_intensity_high}% 1RM`
+              : "";
+          const rirLabel =
+            ex.target_rir_low != null && ex.target_rir_high != null
+              ? ` · sisakan ${ex.target_rir_low}-${ex.target_rir_high} rep`
+              : "";
           return (
             <div
               key={ex.exercise.id}
@@ -442,9 +460,15 @@ export default function SessionView({ data }: { data: SessionData }) {
                   {ex.exercise.muscle_group}
                 </span>
               </div>
-              <div style={{ font: "600 12.5px var(--font-jakarta), sans-serif", color: "var(--dim)", marginBottom: 12 }}>
-                {ex.target_sets} set × {ex.target_rep_low}-{ex.target_rep_high} {unit} · istirahat {restLabel} · terakhir {ex.last_label}
+              <div style={{ font: "600 12.5px var(--font-jakarta), sans-serif", color: "var(--dim)", marginBottom: ex.swapped_from ? 6 : 12 }}>
+                {ex.target_sets} set × {ex.target_rep_low}-{ex.target_rep_high} {unit}{loadLabel}{rirLabel} · istirahat {restLabel} · terakhir {ex.last_label}
               </div>
+              {ex.swapped_from && (
+                <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "#ff9a5c", marginBottom: 12 }}>
+                  {ex.swap_source === "ai" ? "✨ Rekomendasi AI" : "Custom"} — pengganti sementara untuk{" "}
+                  <s>{ex.swapped_from}</s> (hanya hari ini)
+                </div>
+              )}
 
               {ex.suggestion.message && (
                 <div
@@ -565,10 +589,10 @@ export default function SessionView({ data }: { data: SessionData }) {
                         {kind === "weighted"
                           ? s.weight > 0
                             ? `${slot.reps} × ${s.weight} kg = ${formatNumber(totalKg)} kg`
-                            : `${slot.reps} reps`
+                            : `${slot.reps} ${unit}`
                           : kind === "cardio"
                             ? `${slot.reps} menit`
-                            : `${slot.reps} reps`}
+                            : `${slot.reps} ${unit === "dtk" ? "dtk" : "reps"}`}
                       </div>
                     </div>
                   );

@@ -20,6 +20,8 @@ editor (or `supabase db` CLI). Each file is idempotent enough to run once on a c
 | 13 | `013-nutrition-macros.sql` | Add `carb_g` + `fat_g` to `nutrition_logs` (chat/voice meal logging) |
 | 14 | `014-seed-exercises-extra.sql` | Seed 13 extra exercises (squat/hinge/core/leg varian + video URL) |
 | 16 | `016-seed-exercises-extra.sql` | Menggantikan 015: 37 exercises lama + 65 baru (variasi pemula–mahir, sudah dijalankan 2026-07-04 dengan dedup slug+nama) |
+| 17 | `017-program-intensity.sql` | Kolom intensitas `target_intensity_low/high` (%1RM) + `target_rir_low/high` di `program_exercises` |
+| 18 | `018-exercise-overrides.sql` | `exercise_overrides`: penggantian latihan sementara per tanggal (custom/AI) + riwayat |
 
 ## After migrating: backfill embeddings
 

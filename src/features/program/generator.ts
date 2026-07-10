@@ -1,3 +1,4 @@
+import { isHoldExercise } from "@/constants/hold-exercises";
 import {
   Equipment,
   ExperienceLevel,
@@ -39,6 +40,13 @@ type GoalParams = {
   rest_compound: number;
   rest_isolation: number;
   cardio_minutes: [number, number];
+  // Intensitas beban target = variabel penentu utama (NSCA/ACSM). Tanpa ini
+  // rentang rep tidak bermakna. %1RM untuk gerakan berbeban; RIR (reps-in-
+  // reserve) berlaku semua gerakan resistance sbg proksimitas ke kegagalan.
+  intensity_low: number;
+  intensity_high: number;
+  rir_low: number;
+  rir_high: number;
 };
 
 const GOAL_PARAMS: Record<Goal, GoalParams> = {
@@ -46,32 +54,40 @@ const GOAL_PARAMS: Record<Goal, GoalParams> = {
   turun_lemak: {
     rep_low: 8, rep_high: 15, set_low: 3, set_high: 4, cardio: true,
     rest_compound: 90, rest_isolation: 60, cardio_minutes: [15, 20],
+    intensity_low: 60, intensity_high: 75, rir_low: 1, rir_high: 2,
   },
-  // Hypertrophy: 6-12 rep, volume tinggi, istirahat 90-120s compound.
+  // Hypertrophy: 6-12 rep, volume tinggi, istirahat >=90s isolation / 120s
+  // compound (Schoenfeld 2016: rest >=2mnt unggul untuk hipertrofi).
   naik_massa: {
     rep_low: 6, rep_high: 12, set_low: 3, set_high: 5, cardio: false,
-    rest_compound: 120, rest_isolation: 75, cardio_minutes: [10, 15],
+    rest_compound: 120, rest_isolation: 90, cardio_minutes: [10, 15],
+    intensity_low: 67, intensity_high: 80, rir_low: 1, rir_high: 2,
   },
   // Toning: rep tinggi beban sedang + kardio ringan untuk definisi.
   toning: {
     rep_low: 10, rep_high: 15, set_low: 3, set_high: 4, cardio: true,
     rest_compound: 75, rest_isolation: 60, cardio_minutes: [10, 15],
+    intensity_low: 55, intensity_high: 70, rir_low: 1, rir_high: 3,
   },
-  // Strength: rep rendah beban berat, istirahat panjang penuh (3 menit).
+  // Strength: rep rendah beban berat (>=85% 1RM), pemulihan neural penuh
+  // (compound 180s, isolasi 120s). Aksesori di-override ke 70-80% di bawah.
   strength: {
     rep_low: 3, rep_high: 6, set_low: 4, set_high: 6, cardio: false,
-    rest_compound: 180, rest_isolation: 90, cardio_minutes: [10, 15],
+    rest_compound: 180, rest_isolation: 120, cardio_minutes: [10, 15],
+    intensity_low: 85, intensity_high: 92, rir_low: 1, rir_high: 3,
   },
   // Kebugaran umum: volume moderat + kardio (ACSM: 150 menit/minggu).
   kebugaran_umum: {
     rep_low: 10, rep_high: 12, set_low: 2, set_high: 3, cardio: true,
     rest_compound: 90, rest_isolation: 60, cardio_minutes: [15, 20],
+    intensity_low: 60, intensity_high: 70, rir_low: 2, rir_high: 3,
   },
   // Kesuburan: volume moderat (hindari overtraining yang menekan hormon),
-  // rentang rep menengah + kardio ringan-sedang untuk sirkulasi & berat sehat.
+  // beban ringan-sedang & JAUH dari kegagalan (RIR >=2, tanpa Valsalva).
   kesuburan: {
     rep_low: 8, rep_high: 12, set_low: 2, set_high: 3, cardio: true,
     rest_compound: 90, rest_isolation: 60, cardio_minutes: [20, 30],
+    intensity_low: 50, intensity_high: 65, rir_low: 2, rir_high: 3,
   },
 };
 
@@ -273,16 +289,10 @@ function buildDaySpecs(
   // ── Naik massa (hipertrofi): progresi split klasik sesuai frekuensi & level.
   if (freq <= 2) return { split: "full_body", days: fbLetters(freq) };
   if (freq === 3) {
-    // Menengah/mahir 3x: PPL klasik; pemula tetap full body (frekuensi 2x/otot).
-    if (level === "pemula") return { split: "full_body", days: fbLetters(3) };
-    return {
-      split: "ppl",
-      days: [
-        { label: "Push", focus: "Dada, bahu, trisep", templateKey: "Push" },
-        { label: "Pull", focus: "Punggung, bisep", templateKey: "Pull" },
-        { label: "Legs", focus: "Kaki & core", templateKey: "Legs" },
-      ],
-    };
+    // 3x/minggu: Full Body untuk SEMUA level — PPL 1x rotasi hanya melatih
+    // tiap otot 1x/minggu, di bawah standar frekuensi >=2x/otot/minggu
+    // (Schoenfeld; RP volume landmarks). PPL baru layak mulai 5-6 hari.
+    return { split: "full_body", days: fbLetters(3) };
   }
   const upperLower: DaySpec[] = [upper("A"), lower("A"), upper("B"), lower("B")];
   if (freq === 4) {
@@ -321,7 +331,7 @@ function buildDaySpecs(
   return { split: "ppl", days: [...base, ...base] };
 }
 
-function allowedEquipment(equipment: Equipment): Set<EquipmentType> {
+export function allowedEquipment(equipment: Equipment): Set<EquipmentType> {
   // Equipment "cardio" = mesin kardio (rowing/sepeda statis/elliptical),
   // hanya tersedia di gym lengkap.
   if (equipment === "gym_lengkap")
@@ -346,7 +356,7 @@ const LEVEL_ORDER: Record<ExperienceLevel, number> = {
 
 // Gerakan high-impact (lompatan) — dihindari untuk BMI tinggi, usia 55+,
 // keluhan lutut/pergelangan kaki, dan goal kesuburan.
-function isHighImpact(e: Exercise): boolean {
+export function isHighImpact(e: Exercise): boolean {
   return (
     e.slug.includes("jump") ||
     e.slug.includes("burpee") ||
@@ -358,13 +368,47 @@ function isHighImpact(e: Exercise): boolean {
   );
 }
 
+// Gerakan yang dihindari untuk goal kesuburan/persiapan kehamilan (ACOG):
+// (1) fleksi + rotasi tulang belakang → risiko diastasis recti; (2) risiko
+// jatuh / keseimbangan tinggi tanpa tumpuan. Beban mendekati kegagalan &
+// Valsalva sudah dijaga lewat RIR >=2 (lihat GOAL_PARAMS.kesuburan).
+const PREGNANCY_UNSAFE_SLUGS = new Set<string>([
+  // Fleksi/rotasi batang tubuh & tekanan intra-abdominal tinggi
+  "russian-twist", "bicycle-crunch", "v-up", "crunch", "hollow-body-hold",
+  "hanging-knee-raise", "hanging-leg-raise", "dragon-flag", "l-sit",
+  "ab-wheel-rollout", "sit-up", "cable-woodchop",
+  // Risiko jatuh / keseimbangan tinggi
+  "pistol-squat", "single-leg-rdl", "bulgarian-split-squat", "overhead-squat",
+  "turkish-get-up", "muscle-up", "handstand-push-up", "sissy-squat",
+]);
+
+export function isPregnancyUnsafe(e: Exercise): boolean {
+  return PREGNANCY_UNSAFE_SLUGS.has(e.slug);
+}
+
 type PickContext = {
   allowed: Set<EquipmentType>;
   injuries: string[];
   level: ExperienceLevel;
   lowImpact: boolean;
+  /** Goal kesuburan: buang gerakan fleksi/rotasi tulang belakang & risiko jatuh. */
+  avoidPregnancyRisk: boolean;
   preferSlugs: string[];
+  /** Seed rotasi: tie-break kandidat digilir per generasi program, bukan
+   *  selalu alfabetis — agar seluruh bank latihan kebagian dipakai
+   *  (tanpa seed, slug awal alfabet spt "bear-crawl-hold" selalu menang
+   *  dan gerakan seperti "plank" tidak pernah muncul). */
+  seed: number;
 };
+
+// Hash deterministik kecil untuk rotasi kandidat (djb2).
+function slugHash(slug: string, seed: number): number {
+  let h = 5381 + seed;
+  for (let i = 0; i < slug.length; i++) {
+    h = ((h << 5) + h + slug.charCodeAt(i)) | 0;
+  }
+  return h >>> 0;
+}
 
 function pickExercise(
   pattern: MovementPattern,
@@ -379,7 +423,8 @@ function pickExercise(
       ctx.allowed.has(e.equipment) &&
       !used.has(e.slug) &&
       !e.injury_cautions.some((c) => ctx.injuries.includes(c)) &&
-      !(ctx.lowImpact && isHighImpact(e)),
+      !(ctx.lowImpact && isHighImpact(e)) &&
+      !(ctx.avoidPregnancyRisk && isPregnancyUnsafe(e)),
   );
 
   if (candidates.length === 0) return null;
@@ -417,7 +462,9 @@ function pickExercise(
     if (closeA !== closeB) return closeA - closeB;
     const tier = EQUIPMENT_TIER[b.equipment] - EQUIPMENT_TIER[a.equipment];
     if (tier !== 0) return tier;
-    return a.slug.localeCompare(b.slug);
+    // Tie-break digilir per program (bukan alfabetis permanen) supaya semua
+    // variasi di bank latihan kebagian giliran antar-regenerasi.
+    return slugHash(a.slug, ctx.seed) - slugHash(b.slug, ctx.seed);
   });
 
   // Jangan paksakan gerakan 2 level di atas kemampuan (mis. pemula tidak
@@ -439,6 +486,8 @@ function computeBMI(
 export function generateProgram(
   input: GeneratorInput,
   exercises: Exercise[],
+  /** Seed rotasi variasi; default berubah tiap generasi agar bank latihan tergilir. */
+  seed: number = Math.floor(Date.now() / 86_400_000),
 ): GeneratedProgram {
   const params = GOAL_PARAMS[input.goal];
   const level = input.experience_level;
@@ -508,6 +557,8 @@ export function generateProgram(
     injuries: input.injuries,
     level,
     lowImpact,
+    avoidPregnancyRisk: input.goal === "kesuburan",
+    seed,
     // Persiapan kehamilan: otot dasar panggul, napas diafragma & stabilitas
     // core diutamakan — dirotasi antar-hari lewat weekAvoid di pickExercise.
     preferSlugs:
@@ -580,18 +631,48 @@ export function generateProgram(
       const isAccessory = !ex.is_compound || pattern === "core";
       let repLow = params.rep_low;
       let repHigh = params.rep_high;
+      let intLow: number | null = params.intensity_low;
+      let intHigh: number | null = params.intensity_high;
       if (input.goal === "strength" && isAccessory) {
         repLow = 8;
         repHigh = 12;
+        // Aksesori tidak diberi beban maksimal — turun ke zona hipertrofi.
+        intLow = 70;
+        intHigh = 80;
       }
       // Remaja: hindari beban maksimal rep 3-5, geser ke 6-10 (panduan
       // youth strength training).
       if (isYouth && input.goal === "strength" && repLow < 6) {
         repLow = 6;
         repHigh = 10;
+        intLow = 70;
+        intHigh = 80;
+      }
+      // %1RM hanya bermakna untuk beban eksternal; bodyweight memakai RIR saja.
+      const isWeighted =
+        ex.equipment === "barbell" ||
+        ex.equipment === "dumbbell" ||
+        ex.equipment === "machine";
+      if (!isWeighted) {
+        intLow = null;
+        intHigh = null;
+      }
+
+      // Gerakan isometrik (plank, wall-sit, dll) ditarget DETIK tahan, bukan
+      // rep — "Plank 3×60 detik" adalah resep standar pelatih. Rentang naik
+      // sesuai level (pemula 20-40s, lainnya 30-60s).
+      const isHold = isHoldExercise(ex.slug);
+      if (isHold) {
+        repLow = isBeginner ? 20 : 30;
+        repHigh = isBeginner ? 40 : 60;
+        intLow = null;
+        intHigh = null;
       }
 
       const notes: string[] = [];
+      if (isHold) {
+        notes.push("Tahan posisi sesuai target (detik), napas teratur");
+      }
       if (order === 0) {
         notes.push("Awali pemanasan 5-10 menit (kardio ringan + gerak dinamis)");
       }
@@ -612,6 +693,11 @@ export function generateProgram(
         target_sets: isAccessory ? Math.min(targetSets, 3) : targetSets,
         target_rep_low: repLow,
         target_rep_high: repHigh,
+        target_intensity_low: intLow,
+        target_intensity_high: intHigh,
+        // RIR tidak bermakna untuk hold berbasis detik.
+        target_rir_low: isHold ? null : params.rir_low,
+        target_rir_high: isHold ? null : params.rir_high,
         rest_seconds:
           (ex.is_compound ? params.rest_compound : params.rest_isolation) +
           restBonus,
@@ -638,6 +724,10 @@ export function generateProgram(
         target_sets: 1,
         target_rep_low: cardioLow + boost,
         target_rep_high: cardioHigh + boost,
+        target_intensity_low: null,
+        target_intensity_high: null,
+        target_rir_low: null,
+        target_rir_high: null,
         rest_seconds: 60,
         notes: lowImpact
           ? "Penutup: kardio low-impact intensitas ringan-sedang (menit)"

@@ -198,6 +198,24 @@ export async function saveTurn(
   ]);
 }
 
+/** Hapus satu percakapan beserta seluruh pesannya (cascade lewat FK). */
+export async function deleteConversation(
+  conversationId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: "Sesi berakhir." };
+
+  const { error } = await supabase
+    .from("conversations")
+    .delete()
+    .eq("id", conversationId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+  return {};
+}
+
 export async function setConversationPersona(
   conversationId: string,
   persona: CoachPersona,

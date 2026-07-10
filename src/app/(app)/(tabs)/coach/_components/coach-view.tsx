@@ -12,6 +12,7 @@ import {
   CoachInit,
   ConversationSummary,
   createConversation,
+  deleteConversation,
   getConversation,
   listConversations,
   saveTurn,
@@ -74,6 +75,31 @@ export default function CoachView({ init }: { init: CoachInit }) {
     setHistoryOpen(true);
     setConversations(null); // tampilkan loading
     setConversations(await listConversations());
+  }
+
+  // Hapus satu percakapan dari riwayat. Bila yang dihapus adalah percakapan
+  // yang sedang dibuka, mulai chat baru — conversationId lama sudah tak ada
+  // di DB, jadi tak bisa dipakai kirim pesan lagi.
+  async function deleteConv(id: string) {
+    const prev = conversations;
+    setConversations((list) => (list ? list.filter((c) => c.id !== id) : list));
+
+    const res = await deleteConversation(id);
+    if (res.error) {
+      setConversations(prev);
+      toast.error(res.error);
+      return;
+    }
+
+    if (id === conversationId) {
+      const created = await createConversation();
+      if (created) {
+        setConversationId(created.conversationId);
+        setMessages([]);
+        setInput("");
+      }
+    }
+    toast.success("Percakapan dihapus");
   }
 
   async function selectConversation(id: string) {
@@ -463,6 +489,7 @@ export default function CoachView({ init }: { init: CoachInit }) {
           conversations={conversations}
           activeId={conversationId}
           onSelect={selectConversation}
+          onDelete={deleteConv}
           onClose={() => setHistoryOpen(false)}
         />
       )}
@@ -474,13 +501,16 @@ function HistoryPanel({
   conversations,
   activeId,
   onSelect,
+  onDelete,
   onClose,
 }: {
   conversations: ConversationSummary[] | null;
   activeId: string;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
   onClose: () => void;
 }) {
+  const [confirmId, setConfirmId] = useState<string | null>(null);
   return (
     <div
       onClick={onClose}
@@ -533,37 +563,84 @@ function HistoryPanel({
           ) : (
             conversations.map((c) => {
               const active = c.id === activeId;
+              const confirming = confirmId === c.id;
               return (
-                <button
+                <div
                   key={c.id}
-                  onClick={() => onSelect(c.id)}
                   style={{
-                    textAlign: "left",
                     borderRadius: 14,
-                    padding: "12px 14px",
                     background: active ? "rgba(201,251,60,.12)" : "var(--surface)",
                     border: active ? "1px solid var(--acc)" : "1px solid var(--line2)",
                     display: "flex",
-                    flexDirection: "column",
-                    gap: 3,
+                    alignItems: "stretch",
+                    gap: 0,
                   }}
                 >
-                  <span
+                  <button
+                    onClick={() => onSelect(c.id)}
                     style={{
-                      font: "700 14px var(--font-archivo), sans-serif",
-                      color: "var(--ink)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
+                      flex: 1,
+                      minWidth: 0,
+                      textAlign: "left",
+                      padding: "12px 14px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 3,
+                    }}
+                  >
+                    <span
+                      style={{
+                        font: "700 14px var(--font-archivo), sans-serif",
+                        color: "var(--ink)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {c.title}
+                    </span>
+                    <span style={{ font: "500 11.5px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+                      {format(new Date(c.createdAt), "d MMM yyyy · HH:mm")}
+                      {active ? " · sedang dibuka" : ""}
+                    </span>
+                  </button>
+                  {/* hapus — tekan sekali untuk konfirmasi, tekan lagi untuk hapus */}
+                  <button
+                    onClick={() => {
+                      if (confirming) {
+                        setConfirmId(null);
+                        onDelete(c.id);
+                      } else {
+                        setConfirmId(c.id);
+                      }
+                    }}
+                    onBlur={() => setConfirmId((id) => (id === c.id ? null : id))}
+                    aria-label={confirming ? `Konfirmasi hapus ${c.title}` : `Hapus ${c.title}`}
+                    style={{
+                      flex: "none",
+                      width: confirming ? "auto" : 46,
+                      padding: confirming ? "0 14px" : 0,
+                      margin: "6px 6px 6px 0",
+                      borderRadius: 10,
+                      background: confirming ? "#ff6b6b" : "transparent",
+                      color: confirming ? "#fff" : "var(--dim)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      font: "700 12px var(--font-archivo), sans-serif",
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {c.title}
-                  </span>
-                  <span style={{ font: "500 11.5px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
-                    {format(new Date(c.createdAt), "d MMM yyyy · HH:mm")}
-                    {active ? " · sedang dibuka" : ""}
-                  </span>
-                </button>
+                    {confirming ? (
+                      "Hapus?"
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
               );
             })
           )}
