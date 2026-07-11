@@ -1,5 +1,6 @@
 "use client";
 
+import { backdateLabel } from "@/components/common/backdate-selector";
 import {
   AutoGenerateChange,
   autoGenerateExercises,
@@ -11,11 +12,19 @@ import { toast } from "sonner";
 type ApplyMode = "today" | "permanent";
 type EquipMode = "mixed" | "bodyweight";
 
-// Kartu "Generate Latihan Otomatis" di paling atas tab Latihan: AI menyusun
-// ulang semua latihan berdasarkan track record + kaidah pelatih. Sebelum
-// mengganti ada konfirmasi + pilihan terapkan (hari ini saja / permanen) dan
-// pilihan alat (campur / tanpa alat). Bisa di-generate ulang kapan pun.
-export default function AutoGenerateCard() {
+// Kartu "Generate Latihan Otomatis" DI DALAM sesi: AI menyusun ulang latihan
+// hari program INI saja (hari lain tidak disentuh) berdasarkan track record +
+// kaidah pelatih. Sebelum mengganti ada konfirmasi + pilihan terapkan
+// (tanggal sesi ini saja / permanen) dan pilihan alat (campur / tanpa alat).
+export default function AutoGenerateCard({
+  programDayId,
+  date,
+  dayLabel,
+}: {
+  programDayId: string;
+  date: string;
+  dayLabel: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [apply, setApply] = useState<ApplyMode>("today");
@@ -29,7 +38,12 @@ export default function AutoGenerateCard() {
   async function run() {
     setLoading(true);
     setResult(null);
-    const res = await autoGenerateExercises({ apply, equipmentMode: equip });
+    const res = await autoGenerateExercises({
+      programDayId,
+      date,
+      apply,
+      equipmentMode: equip,
+    });
     setLoading(false);
     if (res.error) {
       toast.error(res.error);
@@ -39,10 +53,10 @@ export default function AutoGenerateCard() {
     setResult({ summary: res.summary ?? "", changes });
     toast.success(
       changes.length === 0
-        ? "Program kamu sudah optimal — tidak ada yang perlu diganti."
+        ? "Latihan sesi ini sudah optimal — tidak ada yang perlu diganti."
         : apply === "permanent"
-          ? `${changes.length} latihan diganti permanen.`
-          : `${changes.length} latihan diganti untuk hari ini saja.`,
+          ? `${changes.length} latihan hari ini diganti permanen.`
+          : `${changes.length} latihan diganti untuk ${backdateLabel(date)} saja.`,
     );
     router.refresh();
   }
@@ -62,19 +76,20 @@ export default function AutoGenerateCard() {
     <div
       style={{
         borderRadius: 20,
-        padding: 16,
+        padding: 14,
         background: "linear-gradient(150deg, rgba(201,251,60,.08), var(--surface))",
         border: "1px solid rgba(201,251,60,.22)",
+        marginBottom: 12,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ font: "800 15px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+          <div style={{ font: "800 14px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
             ⚡ Generate Latihan Otomatis
           </div>
-          <div style={{ font: "500 12.5px/1.5 var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 3 }}>
-            AI menyusun ulang latihanmu dari track record & kaidah pelatih — bisa
-            di-generate ulang kapan pun.
+          <div style={{ font: "500 12px/1.5 var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 3 }}>
+            AI menyusun ulang latihan sesi <b>{dayLabel}</b> ini dari track record &
+            kaidah pelatih — bisa di-generate ulang kapan pun.
           </div>
         </div>
         <button
@@ -84,12 +99,12 @@ export default function AutoGenerateCard() {
           }}
           style={{
             flex: "none",
-            padding: "10px 15px",
+            padding: "9px 14px",
             borderRadius: 12,
             background: open ? "var(--raised)" : "var(--lime)",
             color: open ? "var(--dim)" : "#10130a",
             border: `1px solid ${open ? "var(--line2)" : "var(--lime)"}`,
-            font: "800 13px var(--font-archivo), sans-serif",
+            font: "800 12.5px var(--font-archivo), sans-serif",
           }}
         >
           {open ? "Tutup" : "Generate"}
@@ -97,7 +112,7 @@ export default function AutoGenerateCard() {
       </div>
 
       {open && (
-        <div style={{ marginTop: 14, borderTop: "1px solid var(--line2)", paddingTop: 13 }}>
+        <div style={{ marginTop: 13, borderTop: "1px solid var(--line2)", paddingTop: 12 }}>
           <div style={{ font: "800 11px var(--font-archivo), sans-serif", letterSpacing: ".12em", textTransform: "uppercase", color: "var(--dim)", marginBottom: 7 }}>
             Pilihan alat
           </div>
@@ -115,7 +130,7 @@ export default function AutoGenerateCard() {
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <button style={pill(apply === "today")} onClick={() => setApply("today")}>
-              Hari ini saja
+              {backdateLabel(date) === "hari ini" ? "Hari ini saja" : `${backdateLabel(date)} saja`}
             </button>
             <button style={pill(apply === "permanent")} onClick={() => setApply("permanent")}>
               Permanen
@@ -136,13 +151,15 @@ export default function AutoGenerateCard() {
           >
             {apply === "permanent" ? (
               <>
-                <b>Latihan kamu akan diganti permanen</b> — program berubah
-                selamanya (kamu tetap bisa generate ulang nanti).
+                <b>Latihan sesi {dayLabel} akan diganti permanen</b> — hari program
+                ini berubah selamanya (hari lain tidak disentuh; kamu tetap bisa
+                generate ulang nanti).
               </>
             ) : (
               <>
-                <b>Latihan kamu akan diganti untuk hari ini saja</b> — besok
-                kembali ke program asli, dan penggantian tercatat di riwayat.
+                <b>Latihan sesi ini akan diganti untuk {backdateLabel(date)} saja</b>{" "}
+                — setelahnya kembali ke program asli, dan penggantian tercatat di
+                riwayat.
               </>
             )}
           </div>
@@ -160,7 +177,7 @@ export default function AutoGenerateCard() {
               opacity: loading ? 0.6 : 1,
             }}
           >
-            {loading ? "AI mempelajari track record & menyusun latihan…" : "Ya, ganti latihan saya"}
+            {loading ? "AI mempelajari track record & menyusun latihan…" : "Ya, ganti latihan sesi ini"}
           </button>
 
           {result && (
@@ -185,10 +202,7 @@ export default function AutoGenerateCard() {
                       border: "1px solid var(--line2)",
                     }}
                   >
-                    <div style={{ font: "700 12px var(--font-archivo), sans-serif", color: "var(--dim)" }}>
-                      {c.day_label}
-                    </div>
-                    <div style={{ font: "600 12.5px/1.5 var(--font-jakarta), sans-serif", color: "var(--ink)", marginTop: 2 }}>
+                    <div style={{ font: "600 12.5px/1.5 var(--font-jakarta), sans-serif", color: "var(--ink)" }}>
                       <s style={{ color: "var(--faint)" }}>{c.from}</s> → {c.to}
                     </div>
                     {c.reason && (

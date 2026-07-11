@@ -1,5 +1,4 @@
 import { getActiveProgram, getProgressionStatus } from "@/features/program/action";
-import AutoGenerateCard from "./_components/auto-generate-card";
 import DayList from "./_components/day-list";
 import ProgressionCard from "./_components/progression-card";
 
@@ -46,9 +45,6 @@ export default async function ProgramPage() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 18 }}>
-        {/* AI menyusun ulang semua latihan (track record + kaidah pelatih). */}
-        <AutoGenerateCard />
-
         {/* Disclaimer medis untuk program persiapan kehamilan (ACOG). */}
         {program.goal === "kesuburan" && (
           <div

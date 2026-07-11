@@ -104,6 +104,8 @@ export type SessionExercise = {
 export type SessionData = {
   session_id: string;
   day_label: string;
+  /** Hari program milik sesi ini — dipakai Generate Otomatis (per hari). */
+  program_day_id: string;
   /** Tanggal kalender sesi (yyyy-MM-dd) — dipakai fitur ganti latihan per tanggal. */
   session_date: string;
   exercises: SessionExercise[];
@@ -286,6 +288,7 @@ export async function getSessionData(
   return {
     session_id: sessionId,
     day_label: day.label,
+    program_day_id: session.program_day_id,
     session_date: sessionDate,
     exercises,
     rest_warning: restWarning,

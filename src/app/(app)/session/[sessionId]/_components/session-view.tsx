@@ -2,12 +2,14 @@
 
 import { backdateLabel } from "@/components/common/backdate-selector";
 import { ExerciseSheet } from "@/components/common/exercise-sheet";
+import AutoGenerateCard from "./auto-generate-card";
 import { isHoldExercise } from "@/constants/hold-exercises";
 import { EQUIPMENT_LABEL, LEVEL_LABEL } from "@/constants/labels";
 import {
   AIRecommendation,
   getSwapCandidates,
   recommendExercise,
+  removeExerciseOverrideForDate,
   setExerciseOverride,
 } from "@/features/program/override";
 import {
@@ -66,6 +68,8 @@ function buildInitialState(data: SessionData): SessionState {
 type SwapState = {
   programExerciseId: string;
   originalName: string;
+  /** Nama gerakan asli program bila slot ini sedang di-override. */
+  swappedFrom: string | null;
   candidates: Exercise[] | null;
   ai: { summary: string; recommendations: AIRecommendation[] } | null;
   aiLoading: boolean;
@@ -104,6 +108,7 @@ export default function SessionView({ data }: { data: SessionData }) {
     setSwap({
       programExerciseId: ex.program_exercise_id,
       originalName: ex.exercise.name,
+      swappedFrom: ex.swapped_from,
       candidates: null,
       ai: null,
       aiLoading: false,
@@ -168,6 +173,24 @@ export default function SessionView({ data }: { data: SessionData }) {
     toast.success(
       `Latihan diganti untuk ${backdateLabel(data.session_date)} saja — program asli tetap.`,
     );
+    setSwap(null);
+    router.refresh();
+  }
+
+  /** Batalkan penggantian slot ini → kembali ke latihan asli program. */
+  async function restoreSwap() {
+    if (!swap || swap.applying) return;
+    setSwap((p) => (p ? { ...p, applying: true } : p));
+    const res = await removeExerciseOverrideForDate(
+      swap.programExerciseId,
+      data.session_date,
+    );
+    if (res.error) {
+      toast.error(res.error);
+      setSwap((p) => (p ? { ...p, applying: false } : p));
+      return;
+    }
+    toast.success("Kembali ke latihan asli program.");
     setSwap(null);
     router.refresh();
   }
@@ -523,6 +546,13 @@ export default function SessionView({ data }: { data: SessionData }) {
             </span>
           </div>
         )}
+        {/* AI menyusun ulang latihan hari program INI saja (track record + kaidah pelatih). */}
+        <AutoGenerateCard
+          programDayId={data.program_day_id}
+          date={data.session_date}
+          dayLabel={data.day_label}
+        />
+
         {data.exercises.map((ex) => {
           // Fallback untuk 1 frame pertama setelah swap (sebelum effect merge).
           const s = state[ex.exercise.id] ?? initForExercise(ex);
@@ -939,6 +969,25 @@ export default function SessionView({ data }: { data: SessionData }) {
             <p style={{ font: "500 12.5px/1.5 var(--font-jakarta), sans-serif", color: "var(--dim)", margin: "0 0 14px" }}>
               Berlaku {backdateLabel(data.session_date)} saja — program asli tidak berubah.
             </p>
+
+            {/* Slot ini sedang di-override → tawarkan kembali ke gerakan asli. */}
+            {swap.swappedFrom && (
+              <button
+                onClick={restoreSwap}
+                style={{
+                  width: "100%",
+                  padding: "11px 14px",
+                  borderRadius: 13,
+                  background: "var(--raised)",
+                  border: "1px solid var(--line2)",
+                  color: "var(--ink2)",
+                  font: "700 13px var(--font-archivo), sans-serif",
+                  marginBottom: 10,
+                }}
+              >
+                ↩ Kembalikan ke {swap.swappedFrom}
+              </button>
+            )}
 
             <button
               onClick={runSwapAI}

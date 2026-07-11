@@ -1,13 +1,14 @@
 "use server";
 
-// ── Generate Latihan Otomatis ───────────────────────────────────────────
-// Mengganti SEMUA latihan program aktif sekaligus lewat AI yang berperan
-// sebagai personal trainer: mempelajari track record (sesi & riwayat set),
-// menghormati profil/cedera/tujuan (kaidah NSCA/ACSM/ACOG sudah tertanam di
-// filter kandidat), dan menjamin tidak ada gerakan duplikat dalam satu hari.
-// Dua mode penerapan: "today" (override sementara, tercatat di riwayat per
-// tanggal) atau "permanent" (program diubah selamanya — bisa di-generate ulang
-// kapan pun). Pilihan alat: "mixed" (sesuai profil) atau "bodyweight" saja.
+// ── Generate Latihan Otomatis (per hari program, dipanggil dari sesi) ────
+// Mengganti latihan SATU hari program lewat AI yang berperan sebagai personal
+// trainer: mempelajari track record (sesi & riwayat set), menghormati
+// profil/cedera/tujuan (kaidah NSCA/ACSM/ACOG sudah tertanam di filter
+// kandidat), dan menjamin tidak ada gerakan duplikat dalam hari itu.
+// Dua mode penerapan: "today" (override sementara pada tanggal sesi, tercatat
+// di riwayat per tanggal) atau "permanent" (hari program diubah selamanya —
+// bisa di-generate ulang kapan pun). Pilihan alat: "mixed" (sesuai profil)
+// atau "bodyweight" saja.
 
 import {
   ALL_QUOTA_EXHAUSTED_MESSAGE,
@@ -91,12 +92,17 @@ function isQuotaError(error: unknown): boolean {
 }
 
 export async function autoGenerateExercises(input: {
-  /** "today" = override sementara hari ini; "permanent" = program diubah selamanya. */
+  /** Hari program yang di-generate (hanya latihan hari ini yang diganti). */
+  programDayId: string;
+  /** Tanggal sesi (yyyy-MM-dd) — dipakai untuk override mode "today". */
+  date: string;
+  /** "today" = override sementara pada tanggal sesi; "permanent" = hari program diubah selamanya. */
   apply: "today" | "permanent";
   /** "mixed" = alat sesuai profil; "bodyweight" = tanpa alat/mesin semua. */
   equipmentMode: "mixed" | "bodyweight";
   model?: CoachModel;
 }): Promise<{ error?: string; summary?: string; changes?: AutoGenerateChange[] }> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { error: "Tanggal tidak valid." };
   const supabase = await createClient();
   const user = await getCurrentUser();
   if (!user) return { error: "Sesi berakhir, silakan masuk lagi." };
@@ -187,9 +193,13 @@ export async function autoGenerateExercises(input: {
     day_index: number;
     exercises: { id: string; order_index: number; exercise: Exercise }[];
   };
-  const days = ((program.days ?? []) as unknown as DayRow[]).sort(
-    (a, b) => a.day_index - b.day_index,
-  );
+  // Hanya hari program milik sesi ini yang diganti — hari lain tidak disentuh.
+  const days = ((program.days ?? []) as unknown as DayRow[])
+    .filter((d) => d.id === input.programDayId)
+    .sort((a, b) => a.day_index - b.day_index);
+  if (days.length === 0) {
+    return { error: "Hari program tidak ditemukan di program aktif." };
+  }
 
   const slots: Slot[] = [];
   for (const day of days) {
@@ -241,7 +251,7 @@ ${cands}`;
     .join("\n");
 
   const prompt = `Kamu personal trainer bersertifikat (NSCA-CPT) di aplikasi fitness Indonesia.
-Susun ulang SEMUA latihan pada program user di bawah. Pelajari dulu track record-nya, lalu untuk TIAP slot pilih satu gerakan dari daftar kandidat slot itu (boleh mempertahankan gerakan saat ini bila memang paling tepat).
+Susun ulang latihan pada SATU hari program user di bawah (hari lain tidak diubah). Pelajari dulu track record-nya, lalu untuk TIAP slot pilih satu gerakan dari daftar kandidat slot itu (boleh mempertahankan gerakan saat ini bila memang paling tepat).
 
 Profil user:
 - Tujuan: ${program.goal ? (GOAL_LABEL[program.goal] ?? program.goal) : "kebugaran umum"}
@@ -323,7 +333,6 @@ Aturan WAJIB:
   }
 
   const changes: AutoGenerateChange[] = [];
-  const today = format(new Date(), "yyyy-MM-dd");
 
   for (const slot of slots) {
     const c = chosen.get(slot.id)!;
@@ -336,21 +345,21 @@ Aturan WAJIB:
         .eq("id", slot.id)
         .eq("user_id", user.id);
       if (error) return { error: error.message };
-      // Override hari ini untuk slot ini jadi tidak relevan — bersihkan agar
-      // tidak menutupi perubahan permanen.
+      // Override tanggal ini untuk slot ini jadi tidak relevan — bersihkan
+      // agar tidak menutupi perubahan permanen.
       await supabase
         .from("exercise_overrides")
         .delete()
         .eq("user_id", user.id)
         .eq("program_exercise_id", slot.id)
-        .eq("override_date", today);
+        .eq("override_date", input.date);
     } else {
       const { error } = await supabase.from("exercise_overrides").upsert(
         {
           user_id: user.id,
           program_exercise_id: slot.id,
           replacement_exercise_id: c.exercise.id,
-          override_date: today,
+          override_date: input.date,
           source: "ai",
           reason: c.reason,
         },

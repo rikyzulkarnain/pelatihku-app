@@ -267,6 +267,28 @@ export async function setExerciseOverride(input: {
   return {};
 }
 
+/** Batalkan penggantian sebuah slot pada tanggal tertentu (dipakai dari sesi). */
+export async function removeExerciseOverrideForDate(
+  programExerciseId: string,
+  date: string,
+): Promise<{ error?: string }> {
+  if (!DATE_RE.test(date)) return { error: "Tanggal tidak valid." };
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: "Sesi berakhir, silakan masuk lagi." };
+
+  const { error } = await supabase
+    .from("exercise_overrides")
+    .delete()
+    .eq("program_exercise_id", programExerciseId)
+    .eq("override_date", date)
+    .eq("user_id", user.id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/", "layout");
+  return {};
+}
+
 /** Batalkan penggantian (kembali ke latihan asli program) untuk tanggal itu. */
 export async function removeExerciseOverride(
   overrideId: string,
