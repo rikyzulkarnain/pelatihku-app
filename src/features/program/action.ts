@@ -191,7 +191,7 @@ export async function getActiveProgram(): Promise<ProgramWithDays | null> {
   const { data: days } = await supabase
     .from("program_days")
     .select(
-      "*, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, target_intensity_low, target_intensity_high, target_rir_low, target_rir_high, rest_seconds, notes, exercise:exercises(*))",
+      "*, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, target_intensity_low, target_intensity_high, target_rir_low, target_rir_high, rest_seconds, notes, exercise:exercises!program_exercises_exercise_id_fkey(*))",
     )
     .eq("program_id", program.id)
     .order("day_index", { ascending: true });

@@ -101,7 +101,7 @@ export async function getCoachContext(): Promise<CoachContext> {
 
     const { data: days } = await supabase
       .from("program_days")
-      .select("label, day_index, exercises:program_exercises(exercise:exercises(name))")
+      .select("label, day_index, exercises:program_exercises(exercise:exercises!program_exercises_exercise_id_fkey(name))")
       .eq("program_id", program.id)
       .order("day_index", { ascending: true });
 

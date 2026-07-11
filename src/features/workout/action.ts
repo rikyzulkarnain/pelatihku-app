@@ -124,7 +124,7 @@ export async function getSessionData(
   const { data: session } = await supabase
     .from("workout_sessions")
     .select(
-      "id, program_day_id, started_at, day:program_days(label, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, target_intensity_low, target_intensity_high, target_rir_low, target_rir_high, rest_seconds, notes, exercise:exercises(*)))",
+      "id, program_day_id, started_at, day:program_days(label, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, target_intensity_low, target_intensity_high, target_rir_low, target_rir_high, rest_seconds, notes, exercise:exercises!program_exercises_exercise_id_fkey(*)))",
     )
     .eq("id", sessionId)
     .eq("user_id", user.id)

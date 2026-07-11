@@ -70,7 +70,7 @@ export async function getDayDetail(
   const { data: day } = await supabase
     .from("program_days")
     .select(
-      "id, program_id, label, focus, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, rest_seconds, exercise:exercises(*))",
+      "id, program_id, label, focus, exercises:program_exercises(id, order_index, target_sets, target_rep_low, target_rep_high, rest_seconds, exercise:exercises!program_exercises_exercise_id_fkey(*))",
     )
     .eq("id", dayId)
     .eq("user_id", user.id)
@@ -144,7 +144,7 @@ async function loadSlotAndCandidates(programExerciseId: string): Promise<{
   const [{ data: pe }, { data: fitness }] = await Promise.all([
     supabase
       .from("program_exercises")
-      .select("id, exercise:exercises(*)")
+      .select("id, exercise:exercises!program_exercises_exercise_id_fkey(*)")
       .eq("id", programExerciseId)
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -228,7 +228,7 @@ export async function setExerciseOverride(input: {
   const [{ data: pe }, { data: replacement }] = await Promise.all([
     supabase
       .from("program_exercises")
-      .select("id, exercise:exercises(movement_pattern)")
+      .select("id, exercise:exercises!program_exercises_exercise_id_fkey(movement_pattern)")
       .eq("id", input.programExerciseId)
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -329,7 +329,7 @@ export async function getOverrideHistory(
   let query = supabase
     .from("exercise_overrides")
     .select(
-      "id, override_date, source, reason, replacement:exercises(name), program_exercise:program_exercises(program_day_id, exercise:exercises(name), day:program_days(label))",
+      "id, override_date, source, reason, replacement:exercises(name), program_exercise:program_exercises(program_day_id, exercise:exercises!program_exercises_exercise_id_fkey(name), day:program_days(label))",
     )
     .eq("user_id", user.id)
     .order("override_date", { ascending: false })

@@ -123,7 +123,7 @@ export async function autoGenerateExercises(input: {
     supabase
       .from("programs")
       .select(
-        "id, goal, days:program_days(id, label, day_index, exercises:program_exercises(id, order_index, baseline_exercise_id, exercise:exercises(*)))",
+        "id, goal, days:program_days(id, label, day_index, exercises:program_exercises(id, order_index, baseline_exercise_id, exercise:exercises!program_exercises_exercise_id_fkey(*)))",
       )
       .eq("user_id", user.id)
       .eq("is_active", true)
