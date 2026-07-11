@@ -114,41 +114,51 @@ export default function SessionView({ data }: { data: SessionData }) {
       aiLoading: false,
       applying: false,
     });
-    const res = await getSwapCandidates(ex.program_exercise_id);
-    if (res.error) {
-      toast.error(res.error);
+    try {
+      const res = await getSwapCandidates(ex.program_exercise_id);
+      if (res.error) {
+        toast.error(res.error);
+        setSwap(null);
+        return;
+      }
+      setSwap((p) =>
+        p?.programExerciseId === ex.program_exercise_id
+          ? { ...p, candidates: res.candidates ?? [] }
+          : p,
+      );
+    } catch {
+      toast.error("Gagal memuat kandidat latihan. Coba lagi ya.");
       setSwap(null);
-      return;
     }
-    setSwap((p) =>
-      p?.programExerciseId === ex.program_exercise_id
-        ? { ...p, candidates: res.candidates ?? [] }
-        : p,
-    );
   }
 
   async function runSwapAI() {
     if (!swap) return;
     const peId = swap.programExerciseId;
     setSwap((p) => (p?.programExerciseId === peId ? { ...p, aiLoading: true } : p));
-    const res = await recommendExercise({ programExerciseId: peId });
-    if (res.error) {
-      toast.error(res.error);
+    try {
+      const res = await recommendExercise({ programExerciseId: peId });
+      if (res.error) {
+        toast.error(res.error);
+        setSwap((p) => (p?.programExerciseId === peId ? { ...p, aiLoading: false } : p));
+        return;
+      }
+      setSwap((p) =>
+        p?.programExerciseId === peId
+          ? {
+              ...p,
+              aiLoading: false,
+              ai: {
+                summary: res.summary ?? "",
+                recommendations: res.recommendations ?? [],
+              },
+            }
+          : p,
+      );
+    } catch {
+      toast.error("Gagal menyusun rekomendasi. Coba lagi ya.");
       setSwap((p) => (p?.programExerciseId === peId ? { ...p, aiLoading: false } : p));
-      return;
     }
-    setSwap((p) =>
-      p?.programExerciseId === peId
-        ? {
-            ...p,
-            aiLoading: false,
-            ai: {
-              summary: res.summary ?? "",
-              recommendations: res.recommendations ?? [],
-            },
-          }
-        : p,
-    );
   }
 
   async function applySwap(
@@ -158,41 +168,51 @@ export default function SessionView({ data }: { data: SessionData }) {
   ) {
     if (!swap || swap.applying) return;
     setSwap((p) => (p ? { ...p, applying: true } : p));
-    const res = await setExerciseOverride({
-      programExerciseId: swap.programExerciseId,
-      replacementExerciseId,
-      date: data.session_date,
-      source,
-      reason,
-    });
-    if (res.error) {
-      toast.error(res.error);
+    try {
+      const res = await setExerciseOverride({
+        programExerciseId: swap.programExerciseId,
+        replacementExerciseId,
+        date: data.session_date,
+        source,
+        reason,
+      });
+      if (res.error) {
+        toast.error(res.error);
+        setSwap((p) => (p ? { ...p, applying: false } : p));
+        return;
+      }
+      toast.success(
+        `Latihan diganti untuk ${backdateLabel(data.session_date)} saja — program asli tetap.`,
+      );
+      setSwap(null);
+      router.refresh();
+    } catch {
+      toast.error("Gagal mengganti latihan. Coba lagi ya.");
       setSwap((p) => (p ? { ...p, applying: false } : p));
-      return;
     }
-    toast.success(
-      `Latihan diganti untuk ${backdateLabel(data.session_date)} saja — program asli tetap.`,
-    );
-    setSwap(null);
-    router.refresh();
   }
 
   /** Batalkan penggantian slot ini → kembali ke latihan asli program. */
   async function restoreSwap() {
     if (!swap || swap.applying) return;
     setSwap((p) => (p ? { ...p, applying: true } : p));
-    const res = await removeExerciseOverrideForDate(
-      swap.programExerciseId,
-      data.session_date,
-    );
-    if (res.error) {
-      toast.error(res.error);
+    try {
+      const res = await removeExerciseOverrideForDate(
+        swap.programExerciseId,
+        data.session_date,
+      );
+      if (res.error) {
+        toast.error(res.error);
+        setSwap((p) => (p ? { ...p, applying: false } : p));
+        return;
+      }
+      toast.success("Kembali ke latihan asli program.");
+      setSwap(null);
+      router.refresh();
+    } catch {
+      toast.error("Gagal mengembalikan latihan. Coba lagi ya.");
       setSwap((p) => (p ? { ...p, applying: false } : p));
-      return;
     }
-    toast.success("Kembali ke latihan asli program.");
-    setSwap(null);
-    router.refresh();
   }
 
   // ---- Local-first: pulihkan progres dari localStorage, simpan tiap perubahan ----

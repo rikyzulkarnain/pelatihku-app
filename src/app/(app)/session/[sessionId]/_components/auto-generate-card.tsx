@@ -39,45 +39,55 @@ export default function AutoGenerateCard({
 
   async function restore() {
     setRestoring(true);
-    const res = await restoreDayToOriginal({ programDayId, date });
-    setRestoring(false);
-    if (res.error) {
-      toast.error(res.error);
-      return;
+    try {
+      const res = await restoreDayToOriginal({ programDayId, date });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      setResult(null);
+      toast.success(
+        res.restored === 0
+          ? "Latihan sesi ini sudah di kondisi awal."
+          : "Latihan sesi ini dikembalikan ke awal.",
+      );
+      router.refresh();
+    } catch {
+      toast.error("Gagal mengembalikan latihan. Coba lagi ya.");
+    } finally {
+      setRestoring(false);
     }
-    setResult(null);
-    toast.success(
-      res.restored === 0
-        ? "Latihan sesi ini sudah di kondisi awal."
-        : "Latihan sesi ini dikembalikan ke awal.",
-    );
-    router.refresh();
   }
 
   async function run() {
     setLoading(true);
     setResult(null);
-    const res = await autoGenerateExercises({
-      programDayId,
-      date,
-      apply,
-      equipmentMode: equip,
-    });
-    setLoading(false);
-    if (res.error) {
-      toast.error(res.error);
-      return;
+    try {
+      const res = await autoGenerateExercises({
+        programDayId,
+        date,
+        apply,
+        equipmentMode: equip,
+      });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      const changes = res.changes ?? [];
+      setResult({ summary: res.summary ?? "", changes });
+      toast.success(
+        changes.length === 0
+          ? "Latihan sesi ini sudah optimal — tidak ada yang perlu diganti."
+          : apply === "permanent"
+            ? `${changes.length} latihan hari ini diganti permanen.`
+            : `${changes.length} latihan diganti untuk ${backdateLabel(date)} saja.`,
+      );
+      router.refresh();
+    } catch {
+      toast.error("Gagal menyusun latihan otomatis. Coba lagi ya.");
+    } finally {
+      setLoading(false);
     }
-    const changes = res.changes ?? [];
-    setResult({ summary: res.summary ?? "", changes });
-    toast.success(
-      changes.length === 0
-        ? "Latihan sesi ini sudah optimal — tidak ada yang perlu diganti."
-        : apply === "permanent"
-          ? `${changes.length} latihan hari ini diganti permanen.`
-          : `${changes.length} latihan diganti untuk ${backdateLabel(date)} saja.`,
-    );
-    router.refresh();
   }
 
   const pill = (active: boolean): React.CSSProperties => ({
