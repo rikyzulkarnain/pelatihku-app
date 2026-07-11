@@ -104,6 +104,8 @@ export type SessionExercise = {
 export type SessionData = {
   session_id: string;
   day_label: string;
+  /** Tanggal kalender sesi (yyyy-MM-dd) — dipakai fitur ganti latihan per tanggal. */
+  session_date: string;
   exercises: SessionExercise[];
   /** Peringatan recovery bila otot hari ini baru dilatih < 48 jam. */
   rest_warning: string | null;
@@ -284,6 +286,7 @@ export async function getSessionData(
   return {
     session_id: sessionId,
     day_label: day.label,
+    session_date: sessionDate,
     exercises,
     rest_warning: restWarning,
   };

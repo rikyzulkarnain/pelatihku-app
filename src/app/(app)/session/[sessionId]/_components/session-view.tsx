@@ -1,10 +1,19 @@
 "use client";
 
+import { backdateLabel } from "@/components/common/backdate-selector";
 import { ExerciseSheet } from "@/components/common/exercise-sheet";
 import { isHoldExercise } from "@/constants/hold-exercises";
+import { EQUIPMENT_LABEL, LEVEL_LABEL } from "@/constants/labels";
+import {
+  AIRecommendation,
+  getSwapCandidates,
+  recommendExercise,
+  setExerciseOverride,
+} from "@/features/program/override";
 import {
   completeSession,
   SessionData,
+  SessionExercise,
   SetPayload,
   syncSessionSets,
 } from "@/features/workout/action";
@@ -32,22 +41,36 @@ function exUnit(ex: Exercise): "mnt" | "dtk" | "reps" {
   return "reps";
 }
 
+function initForExercise(ex: SessionExercise): ExState {
+  const defaultReps = Math.max(1, ex.suggestion.reps || ex.target_rep_low);
+  return {
+    weight: ex.logged[0]?.weight_kg ?? ex.suggestion.weight_kg,
+    sets: Array.from({ length: ex.target_sets }, (_, i) => {
+      const logged = ex.logged.find((l) => l.set_index === i + 1);
+      return logged
+        ? { done: true, reps: logged.reps }
+        : { done: false, reps: defaultReps };
+    }),
+  };
+}
+
 function buildInitialState(data: SessionData): SessionState {
   const init: SessionState = {};
   for (const ex of data.exercises) {
-    const defaultReps = Math.max(1, ex.suggestion.reps || ex.target_rep_low);
-    init[ex.exercise.id] = {
-      weight: ex.logged[0]?.weight_kg ?? ex.suggestion.weight_kg,
-      sets: Array.from({ length: ex.target_sets }, (_, i) => {
-        const logged = ex.logged.find((l) => l.set_index === i + 1);
-        return logged
-          ? { done: true, reps: logged.reps }
-          : { done: false, reps: defaultReps };
-      }),
-    };
+    init[ex.exercise.id] = initForExercise(ex);
   }
   return init;
 }
+
+/** State panel "Ubah latihan" untuk satu slot dalam sesi. */
+type SwapState = {
+  programExerciseId: string;
+  originalName: string;
+  candidates: Exercise[] | null;
+  ai: { summary: string; recommendations: AIRecommendation[] } | null;
+  aiLoading: boolean;
+  applying: boolean;
+};
 
 export default function SessionView({ data }: { data: SessionData }) {
   const router = useRouter();
@@ -58,6 +81,96 @@ export default function SessionView({ data }: { data: SessionData }) {
   const [syncing, setSyncing] = useState(false);
   const [summary, setSummary] = useState<{ volume: number; streak: number } | null>(null);
   const [videoOf, setVideoOf] = useState<Exercise | null>(null);
+  const [swap, setSwap] = useState<SwapState | null>(null);
+
+  // Setelah ganti latihan (router.refresh), data berisi gerakan baru yang belum
+  // punya state — tambahkan tanpa menyentuh progres set yang sudah ada.
+  useEffect(() => {
+    setState((prev) => {
+      let changed = false;
+      const merged = { ...prev };
+      for (const ex of data.exercises) {
+        if (!merged[ex.exercise.id]) {
+          merged[ex.exercise.id] = initForExercise(ex);
+          changed = true;
+        }
+      }
+      return changed ? merged : prev;
+    });
+  }, [data]);
+
+  // ---- Ganti latihan langsung dari sesi (sementara, hanya tanggal sesi ini) ----
+  async function openSwap(ex: SessionExercise) {
+    setSwap({
+      programExerciseId: ex.program_exercise_id,
+      originalName: ex.exercise.name,
+      candidates: null,
+      ai: null,
+      aiLoading: false,
+      applying: false,
+    });
+    const res = await getSwapCandidates(ex.program_exercise_id);
+    if (res.error) {
+      toast.error(res.error);
+      setSwap(null);
+      return;
+    }
+    setSwap((p) =>
+      p?.programExerciseId === ex.program_exercise_id
+        ? { ...p, candidates: res.candidates ?? [] }
+        : p,
+    );
+  }
+
+  async function runSwapAI() {
+    if (!swap) return;
+    const peId = swap.programExerciseId;
+    setSwap((p) => (p?.programExerciseId === peId ? { ...p, aiLoading: true } : p));
+    const res = await recommendExercise({ programExerciseId: peId });
+    if (res.error) {
+      toast.error(res.error);
+      setSwap((p) => (p?.programExerciseId === peId ? { ...p, aiLoading: false } : p));
+      return;
+    }
+    setSwap((p) =>
+      p?.programExerciseId === peId
+        ? {
+            ...p,
+            aiLoading: false,
+            ai: {
+              summary: res.summary ?? "",
+              recommendations: res.recommendations ?? [],
+            },
+          }
+        : p,
+    );
+  }
+
+  async function applySwap(
+    replacementExerciseId: string,
+    source: "custom" | "ai",
+    reason?: string,
+  ) {
+    if (!swap || swap.applying) return;
+    setSwap((p) => (p ? { ...p, applying: true } : p));
+    const res = await setExerciseOverride({
+      programExerciseId: swap.programExerciseId,
+      replacementExerciseId,
+      date: data.session_date,
+      source,
+      reason,
+    });
+    if (res.error) {
+      toast.error(res.error);
+      setSwap((p) => (p ? { ...p, applying: false } : p));
+      return;
+    }
+    toast.success(
+      `Latihan diganti untuk ${backdateLabel(data.session_date)} saja — program asli tetap.`,
+    );
+    setSwap(null);
+    router.refresh();
+  }
 
   // ---- Local-first: pulihkan progres dari localStorage, simpan tiap perubahan ----
   const restored = useRef(false);
@@ -91,6 +204,7 @@ export default function SessionView({ data }: { data: SessionData }) {
       const out: SetPayload[] = [];
       for (const ex of data.exercises) {
         const s = st[ex.exercise.id];
+        if (!s) continue; // gerakan baru hasil swap, state belum ter-merge
         const kind = exKind(ex.exercise);
         s.sets.forEach((slot, i) => {
           if (!slot.done) return;
@@ -410,7 +524,8 @@ export default function SessionView({ data }: { data: SessionData }) {
           </div>
         )}
         {data.exercises.map((ex) => {
-          const s = state[ex.exercise.id];
+          // Fallback untuk 1 frame pertama setelah swap (sebelum effect merge).
+          const s = state[ex.exercise.id] ?? initForExercise(ex);
           const kind = exKind(ex.exercise);
           const unit = exUnit(ex.exercise);
           const firstUndone = s.sets.findIndex((x) => !x.done);
@@ -459,6 +574,26 @@ export default function SessionView({ data }: { data: SessionData }) {
                 >
                   {ex.exercise.muscle_group}
                 </span>
+                {/* Ganti gerakan slot ini (custom / rekomendasi AI) tanpa keluar dari sesi. */}
+                <button
+                  onClick={() => openSwap(ex)}
+                  aria-label={`Ubah latihan ${ex.exercise.name}`}
+                  style={{
+                    font: "700 11px var(--font-archivo), sans-serif",
+                    letterSpacing: ".04em",
+                    textTransform: "uppercase",
+                    color: "var(--acc)",
+                    padding: "4px 10px",
+                    borderRadius: 8,
+                    background: "rgba(201,251,60,.1)",
+                    border: "1px solid rgba(201,251,60,.24)",
+                    whiteSpace: "nowrap",
+                    flex: "none",
+                    marginTop: 2,
+                  }}
+                >
+                  Ubah
+                </button>
               </div>
               <div style={{ font: "600 12.5px var(--font-jakarta), sans-serif", color: "var(--dim)", marginBottom: ex.swapped_from ? 6 : 12 }}>
                 {ex.target_sets} set × {ex.target_rep_low}-{ex.target_rep_high} {unit}{loadLabel}{rirLabel} · istirahat {restLabel} · terakhir {ex.last_label}
@@ -748,6 +883,181 @@ export default function SessionView({ data }: { data: SessionData }) {
         </button>
       </div>
 
+      {/* Sheet ganti latihan — kandidat satu kategori; "Lihat" membuka video &
+          langkah teknik (ExerciseSheet) sebelum memutuskan "Pakai". */}
+      {swap && (
+        <div
+          onClick={() => setSwap(null)}
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 80,
+            background: "var(--scrim)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "flex-end",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "100%",
+              maxHeight: "82%",
+              overflowY: "auto",
+              background: "var(--sheet)",
+              borderRadius: "28px 28px 0 0",
+              borderTop: "1px solid rgba(201,251,60,.18)",
+              padding: "18px 20px 28px",
+              animation: "pk-up .3s both",
+              opacity: swap.applying ? 0.6 : 1,
+            }}
+            className="no-scrollbar"
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 4 }}>
+              <h2 style={{ font: "900 19px var(--font-archivo), sans-serif", color: "var(--ink)", margin: 0, flex: 1 }}>
+                Ubah: {swap.originalName}
+              </h2>
+              <button
+                onClick={() => setSwap(null)}
+                aria-label="Tutup"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 10,
+                  background: "var(--surface)",
+                  border: "1px solid var(--line2)",
+                  color: "var(--dim)",
+                  font: "700 14px var(--font-archivo), sans-serif",
+                  flex: "none",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <p style={{ font: "500 12.5px/1.5 var(--font-jakarta), sans-serif", color: "var(--dim)", margin: "0 0 14px" }}>
+              Berlaku {backdateLabel(data.session_date)} saja — program asli tidak berubah.
+            </p>
+
+            <button
+              onClick={runSwapAI}
+              disabled={swap.aiLoading}
+              style={{
+                width: "100%",
+                padding: "12px 14px",
+                borderRadius: 13,
+                background: "rgba(201,251,60,.12)",
+                border: "1px solid rgba(201,251,60,.3)",
+                color: "var(--acc)",
+                font: "700 13px var(--font-archivo), sans-serif",
+                opacity: swap.aiLoading ? 0.6 : 1,
+                marginBottom: 10,
+              }}
+            >
+              {swap.aiLoading
+                ? "AI mempelajari track record kamu…"
+                : "✨ Minta rekomendasi AI (berdasarkan track record)"}
+            </button>
+
+            {swap.ai && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                {swap.ai.summary && (
+                  <div style={{ font: "500 12.5px/1.55 var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+                    {swap.ai.summary}
+                  </div>
+                )}
+                {swap.ai.recommendations.map((r) => (
+                  <div
+                    key={r.slug}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      borderRadius: 13,
+                      padding: "10px 12px",
+                      background: "rgba(201,251,60,.06)",
+                      border: "1px solid rgba(201,251,60,.18)",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ font: "800 13.5px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+                        {r.name}
+                      </div>
+                      <div style={{ font: "500 12px/1.5 var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 2 }}>
+                        {r.reason}
+                      </div>
+                    </div>
+                    <button style={swapGhostBtn} onClick={() => setVideoOf(r.exercise)}>
+                      Lihat
+                    </button>
+                    <button
+                      style={swapUseBtn}
+                      onClick={() => applySwap(r.exercise_id, "ai", r.reason)}
+                    >
+                      Pakai
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div
+              style={{
+                font: "800 11px var(--font-archivo), sans-serif",
+                letterSpacing: ".12em",
+                textTransform: "uppercase",
+                color: "var(--dim)",
+                margin: "4px 0 8px",
+              }}
+            >
+              Atau pilih sendiri (kategori sama)
+            </div>
+            {swap.candidates === null ? (
+              <div style={{ font: "500 12.5px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+                Memuat kandidat…
+              </div>
+            ) : swap.candidates.length === 0 ? (
+              <div style={{ font: "500 12.5px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
+                Tidak ada gerakan lain yang aman untuk kategori ini.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {swap.candidates.map((c) => (
+                  <div
+                    key={c.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      borderRadius: 13,
+                      padding: "10px 12px",
+                      background: "var(--raised)",
+                      border: "1px solid var(--line2)",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ font: "700 13.5px var(--font-archivo), sans-serif", color: "var(--ink)" }}>
+                        {c.name}
+                      </div>
+                      <div style={{ font: "500 11.5px var(--font-jakarta), sans-serif", color: "var(--dim)", marginTop: 2 }}>
+                        {EQUIPMENT_LABEL[c.equipment] ?? c.equipment} · {LEVEL_LABEL[c.level] ?? c.level}
+                      </div>
+                    </div>
+                    <button style={swapGhostBtn} onClick={() => setVideoOf(c)}>
+                      Lihat
+                    </button>
+                    <button style={swapUseBtn} onClick={() => applySwap(c.id, "custom")}>
+                      Pakai
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {videoOf && <ExerciseSheet exercise={videoOf} onClose={() => setVideoOf(null)} />}
 
       {summary && (
@@ -760,6 +1070,26 @@ export default function SessionView({ data }: { data: SessionData }) {
     </div>
   );
 }
+
+const swapGhostBtn: React.CSSProperties = {
+  padding: "7px 11px",
+  borderRadius: 10,
+  background: "var(--surface)",
+  border: "1px solid var(--line2)",
+  color: "var(--dim)",
+  font: "700 12px var(--font-archivo), sans-serif",
+  flex: "none",
+};
+
+const swapUseBtn: React.CSSProperties = {
+  padding: "7px 12px",
+  borderRadius: 10,
+  background: "rgba(201,251,60,.12)",
+  border: "1px solid rgba(201,251,60,.3)",
+  color: "var(--acc)",
+  font: "700 12px var(--font-archivo), sans-serif",
+  flex: "none",
+};
 
 const stepBtn: React.CSSProperties = {
   width: 38,

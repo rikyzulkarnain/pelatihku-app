@@ -12,6 +12,16 @@ import {
   ProgressionStatus,
 } from "./progression";
 
+// Pesan ramah untuk error skema (kolom/tabel belum ada = migrasi belum jalan).
+function friendlyDbError(message?: string | null): string | undefined {
+  if (!message) return undefined;
+  const m = message.toLowerCase();
+  if (m.includes("could not find") || m.includes("does not exist")) {
+    return `Database belum sinkron dengan aplikasi (${message}). Jalankan file migrasi terbaru di src/migrations lewat Supabase SQL editor.`;
+  }
+  return message;
+}
+
 export async function generateAndCreateProgram(): Promise<{ error?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -52,13 +62,10 @@ export async function generateAndCreateProgram(): Promise<{ error?: string }> {
     exercises,
   );
 
-  // Deactivate previous programs.
-  await supabase
-    .from("programs")
-    .update({ is_active: false })
-    .eq("user_id", user.id)
-    .eq("is_active", true);
-
+  // Program dibuat NONAKTIF dulu, baru diaktifkan setelah semua hari + gerakan
+  // tersimpan. Kalau ada langkah yang gagal, seluruh program di-rollback
+  // (cascade) — mencegah program aktif setengah jadi yang membuat halaman
+  // Program tampak kosong.
   const { data: program, error: programError } = await supabase
     .from("programs")
     .insert({
@@ -72,15 +79,20 @@ export async function generateAndCreateProgram(): Promise<{ error?: string }> {
       set_low: plan.set_low,
       set_high: plan.set_high,
       includes_cardio: plan.includes_cardio,
-      is_active: true,
+      is_active: false,
       generated_meta: plan.generated_meta,
     })
     .select("id")
     .single();
 
   if (programError || !program) {
-    return { error: programError?.message ?? "Gagal membuat program." };
+    return { error: friendlyDbError(programError?.message) ?? "Gagal membuat program." };
   }
+
+  const rollback = async (message?: string): Promise<{ error: string }> => {
+    await supabase.from("programs").delete().eq("id", program.id).eq("user_id", user.id);
+    return { error: friendlyDbError(message) ?? "Gagal menyimpan program." };
+  };
 
   for (const day of plan.days) {
     const { data: dayRow, error: dayError } = await supabase
@@ -95,9 +107,7 @@ export async function generateAndCreateProgram(): Promise<{ error?: string }> {
       .select("id")
       .single();
 
-    if (dayError || !dayRow) {
-      return { error: dayError?.message ?? "Gagal menyimpan hari latihan." };
-    }
+    if (dayError || !dayRow) return rollback(dayError?.message);
 
     if (day.exercises.length > 0) {
       const { error: exError } = await supabase.from("program_exercises").insert(
@@ -117,9 +127,22 @@ export async function generateAndCreateProgram(): Promise<{ error?: string }> {
           notes: ex.notes,
         })),
       );
-      if (exError) return { error: exError.message };
+      if (exError) return rollback(exError.message);
     }
   }
+
+  // Semua tersimpan — baru matikan program lama & aktifkan yang baru.
+  await supabase
+    .from("programs")
+    .update({ is_active: false })
+    .eq("user_id", user.id)
+    .eq("is_active", true);
+  const { error: activateError } = await supabase
+    .from("programs")
+    .update({ is_active: true })
+    .eq("id", program.id)
+    .eq("user_id", user.id);
+  if (activateError) return rollback(activateError.message);
 
   await supabase
     .from("profiles")

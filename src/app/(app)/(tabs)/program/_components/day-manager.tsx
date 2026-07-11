@@ -3,6 +3,7 @@
 import BackdateSelector, {
   backdateLabel,
 } from "@/components/common/backdate-selector";
+import { ExerciseSheet } from "@/components/common/exercise-sheet";
 import {
   EQUIPMENT_LABEL,
   LEVEL_LABEL,
@@ -47,6 +48,7 @@ export default function DayManager({
   const [detail, setDetail] = useState<DayDetail>(initialDetail);
   const [history, setHistory] = useState<OverrideHistoryItem[]>(initialHistory);
   const [panel, setPanel] = useState<PanelState | null>(null);
+  const [preview, setPreview] = useState<Exercise | null>(null);
   const [pending, startTransition] = useTransition();
 
   async function refresh(nextDate: string) {
@@ -284,6 +286,9 @@ export default function DayManager({
                               {r.reason}
                             </div>
                           </div>
+                          <button style={smallBtn()} onClick={() => setPreview(r.exercise)}>
+                            Lihat
+                          </button>
                           <button
                             style={smallBtn(true)}
                             onClick={() =>
@@ -340,8 +345,11 @@ export default function DayManager({
                               {LEVEL_LABEL[c.level] ?? c.level}
                             </div>
                           </div>
+                          <button style={smallBtn()} onClick={() => setPreview(c)}>
+                            Lihat
+                          </button>
                           <button
-                            style={smallBtn()}
+                            style={smallBtn(true)}
                             onClick={() =>
                               apply(ex.program_exercise_id, c.id, "custom")
                             }
@@ -418,6 +426,9 @@ export default function DayManager({
           </div>
         )}
       </div>
+
+      {/* Preview video + langkah teknik sebelum memakai gerakan pengganti. */}
+      {preview && <ExerciseSheet exercise={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }

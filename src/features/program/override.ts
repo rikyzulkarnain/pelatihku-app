@@ -353,6 +353,8 @@ export type AIRecommendation = {
   slug: string;
   name: string;
   reason: string;
+  /** Data lengkap gerakan — untuk preview video & langkah teknik sebelum dipakai. */
+  exercise: Exercise;
 };
 
 const RECOMMEND_SCHEMA = {
@@ -539,6 +541,7 @@ Aturan:
                 slug: ex.slug,
                 name: ex.name,
                 reason: String(r.reason ?? ""),
+                exercise: ex,
               }
             : null;
         })
