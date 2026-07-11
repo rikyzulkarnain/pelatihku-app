@@ -4,13 +4,14 @@ import { backdateLabel } from "@/components/common/backdate-selector";
 import {
   AutoGenerateChange,
   autoGenerateExercises,
+  restoreDayToOriginal,
 } from "@/features/program/auto-generate";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
 type ApplyMode = "today" | "permanent";
-type EquipMode = "mixed" | "bodyweight";
+type EquipMode = "mixed" | "all" | "bodyweight";
 
 // Kartu "Generate Latihan Otomatis" DI DALAM sesi: AI menyusun ulang latihan
 // hari program INI saja (hari lain tidak disentuh) berdasarkan track record +
@@ -30,10 +31,28 @@ export default function AutoGenerateCard({
   const [apply, setApply] = useState<ApplyMode>("today");
   const [equip, setEquip] = useState<EquipMode>("mixed");
   const [loading, setLoading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [result, setResult] = useState<{
     summary: string;
     changes: AutoGenerateChange[];
   } | null>(null);
+
+  async function restore() {
+    setRestoring(true);
+    const res = await restoreDayToOriginal({ programDayId, date });
+    setRestoring(false);
+    if (res.error) {
+      toast.error(res.error);
+      return;
+    }
+    setResult(null);
+    toast.success(
+      res.restored === 0
+        ? "Latihan sesi ini sudah di kondisi awal."
+        : "Latihan sesi ini dikembalikan ke awal.",
+    );
+    router.refresh();
+  }
 
   async function run() {
     setLoading(true);
@@ -111,17 +130,40 @@ export default function AutoGenerateCard({
         </button>
       </div>
 
+      {/* Selalu tersedia: balikkan latihan hari ini ke kondisi awal
+          (hapus penggantian sementara + pulihkan perubahan permanen). */}
+      <button
+        onClick={restore}
+        disabled={restoring}
+        style={{
+          width: "100%",
+          marginTop: 10,
+          padding: "9px 12px",
+          borderRadius: 11,
+          background: "var(--raised)",
+          border: "1px solid var(--line2)",
+          color: "var(--dim)",
+          font: "700 12px var(--font-archivo), sans-serif",
+          opacity: restoring ? 0.6 : 1,
+        }}
+      >
+        {restoring ? "Mengembalikan…" : "↩ Kembalikan ke latihan awal"}
+      </button>
+
       {open && (
         <div style={{ marginTop: 13, borderTop: "1px solid var(--line2)", paddingTop: 12 }}>
           <div style={{ font: "800 11px var(--font-archivo), sans-serif", letterSpacing: ".12em", textTransform: "uppercase", color: "var(--dim)", marginBottom: 7 }}>
             Pilihan alat
           </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <button style={pill(equip === "mixed")} onClick={() => setEquip("mixed")}>
-              Campur alat & mesin
+              Sesuai profil
+            </button>
+            <button style={pill(equip === "all")} onClick={() => setEquip("all")}>
+              Semua alat & mesin
             </button>
             <button style={pill(equip === "bodyweight")} onClick={() => setEquip("bodyweight")}>
-              Tanpa alat semua
+              Tanpa alat
             </button>
           </div>
 

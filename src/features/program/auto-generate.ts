@@ -43,10 +43,21 @@ type Slot = {
   day_label: string;
   order_index: number;
   current: Exercise;
+  /** Gerakan asli (null bila belum pernah diubah permanen). */
+  baseline_exercise_id: string | null;
   candidates: Exercise[];
 };
 
 const LEVEL_ORDER: Record<string, number> = { pemula: 1, menengah: 2, mahir: 3 };
+
+// Pesan ramah bila kolom baseline belum ada (migrasi 019 belum dijalankan).
+function friendlyMigrationError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("baseline_exercise_id") || m.includes("could not find") || m.includes("does not exist")) {
+    return "Database belum sinkron: jalankan migrasi 019-program-baseline.sql di Supabase SQL editor agar penggantian permanen bisa dikembalikan.";
+  }
+  return message;
+}
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
@@ -98,8 +109,8 @@ export async function autoGenerateExercises(input: {
   date: string;
   /** "today" = override sementara pada tanggal sesi; "permanent" = hari program diubah selamanya. */
   apply: "today" | "permanent";
-  /** "mixed" = alat sesuai profil; "bodyweight" = tanpa alat/mesin semua. */
-  equipmentMode: "mixed" | "bodyweight";
+  /** "mixed" = sesuai profil; "all" = semua alat & mesin; "bodyweight" = tanpa alat. */
+  equipmentMode: "mixed" | "all" | "bodyweight";
   model?: CoachModel;
 }): Promise<{ error?: string; summary?: string; changes?: AutoGenerateChange[] }> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { error: "Tanggal tidak valid." };
@@ -108,11 +119,11 @@ export async function autoGenerateExercises(input: {
   if (!user) return { error: "Sesi berakhir, silakan masuk lagi." };
 
   // ── Muat program aktif + profil + bank latihan + track record ─────────
-  const [{ data: program }, { data: fitness }, { data: pool }] = await Promise.all([
+  const [{ data: program, error: programError }, { data: fitness }, { data: pool }] = await Promise.all([
     supabase
       .from("programs")
       .select(
-        "id, goal, days:program_days(id, label, day_index, exercises:program_exercises(id, order_index, exercise:exercises(*)))",
+        "id, goal, days:program_days(id, label, day_index, exercises:program_exercises(id, order_index, baseline_exercise_id, exercise:exercises(*)))",
       )
       .eq("user_id", user.id)
       .eq("is_active", true)
@@ -127,6 +138,7 @@ export async function autoGenerateExercises(input: {
     supabase.from("exercises").select("*").returns<Exercise[]>(),
   ]);
 
+  if (programError) return { error: friendlyMigrationError(programError.message) };
   if (!program) return { error: "Belum ada program aktif." };
   if (!pool || pool.length === 0) return { error: "Bank latihan kosong." };
 
@@ -175,8 +187,11 @@ export async function autoGenerateExercises(input: {
     injuries.includes("pergelangan_kaki");
   const allowed =
     input.equipmentMode === "bodyweight"
-      ? new Set(["bodyweight"])
-      : allowedEquipment(fitness?.equipment ?? "rumah_tanpa_alat");
+      ? new Set<string>(["bodyweight"])
+      : input.equipmentMode === "all"
+        ? // Semua alat & mesin, terlepas dari profil gym user.
+          new Set<string>(["barbell", "dumbbell", "machine", "bodyweight", "cardio"])
+        : allowedEquipment(fitness?.equipment ?? "rumah_tanpa_alat");
   const userLevel = LEVEL_ORDER[fitness?.experience_level ?? "pemula"];
 
   const safe = (e: Exercise): boolean =>
@@ -191,7 +206,12 @@ export async function autoGenerateExercises(input: {
     id: string;
     label: string;
     day_index: number;
-    exercises: { id: string; order_index: number; exercise: Exercise }[];
+    exercises: {
+      id: string;
+      order_index: number;
+      baseline_exercise_id: string | null;
+      exercise: Exercise;
+    }[];
   };
   // Hanya hari program milik sesi ini yang diganti — hari lain tidak disentuh.
   const days = ((program.days ?? []) as unknown as DayRow[])
@@ -222,6 +242,7 @@ export async function autoGenerateExercises(input: {
         day_label: day.label,
         order_index: pe.order_index,
         current: cur,
+        baseline_exercise_id: pe.baseline_exercise_id ?? null,
         candidates,
       });
     }
@@ -341,10 +362,15 @@ Aturan WAJIB:
     if (input.apply === "permanent") {
       const { error } = await supabase
         .from("program_exercises")
-        .update({ exercise_id: c.exercise.id })
+        .update({
+          exercise_id: c.exercise.id,
+          // Simpan gerakan asli SEKALI (saat pertama diubah permanen) agar bisa
+          // dikembalikan ke latihan awal kapan pun.
+          baseline_exercise_id: slot.baseline_exercise_id ?? slot.current.id,
+        })
         .eq("id", slot.id)
         .eq("user_id", user.id);
-      if (error) return { error: error.message };
+      if (error) return { error: friendlyMigrationError(error.message) };
       // Override tanggal ini untuk slot ini jadi tidak relevan — bersihkan
       // agar tidak menutupi perubahan permanen.
       await supabase
@@ -378,4 +404,60 @@ Aturan WAJIB:
 
   revalidatePath("/", "layout");
   return { summary: String(parsed.summary ?? ""), changes };
+}
+
+/**
+ * Kembalikan SEMUA latihan satu hari program ke kondisi awal:
+ * (1) hapus penggantian sementara (override) pada tanggal itu, dan
+ * (2) pulihkan slot yang pernah diubah PERMANEN dari baseline (gerakan asli).
+ * Aman dipanggil walau tidak ada yang berubah.
+ */
+export async function restoreDayToOriginal(input: {
+  programDayId: string;
+  date: string;
+}): Promise<{ error?: string; restored: number }> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
+    return { error: "Tanggal tidak valid.", restored: 0 };
+  }
+  const supabase = await createClient();
+  const user = await getCurrentUser();
+  if (!user) return { error: "Sesi berakhir, silakan masuk lagi.", restored: 0 };
+
+  // Slot milik hari program ini (verifikasi kepemilikan lewat user_id).
+  const { data: pes, error: peError } = await supabase
+    .from("program_exercises")
+    .select("id, baseline_exercise_id")
+    .eq("program_day_id", input.programDayId)
+    .eq("user_id", user.id);
+  if (peError) return { error: friendlyMigrationError(peError.message), restored: 0 };
+  const rows = (pes ?? []) as { id: string; baseline_exercise_id: string | null }[];
+  if (rows.length === 0) return { error: "Hari program tidak ditemukan.", restored: 0 };
+
+  const peIds = rows.map((r) => r.id);
+  let restored = 0;
+
+  // (1) Hapus override tanggal ini untuk seluruh slot hari ini.
+  const { data: removed } = await supabase
+    .from("exercise_overrides")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("override_date", input.date)
+    .in("program_exercise_id", peIds)
+    .select("id");
+  restored += (removed ?? []).length;
+
+  // (2) Pulihkan slot yang pernah diubah permanen → gerakan asli.
+  for (const r of rows) {
+    if (!r.baseline_exercise_id) continue;
+    const { error } = await supabase
+      .from("program_exercises")
+      .update({ exercise_id: r.baseline_exercise_id, baseline_exercise_id: null })
+      .eq("id", r.id)
+      .eq("user_id", user.id);
+    if (error) return { error: error.message, restored };
+    restored += 1;
+  }
+
+  revalidatePath("/", "layout");
+  return { restored };
 }

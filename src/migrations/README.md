@@ -22,6 +22,7 @@ editor (or `supabase db` CLI). Each file is idempotent enough to run once on a c
 | 16 | `016-seed-exercises-extra.sql` | Menggantikan 015: 37 exercises lama + 65 baru (variasi pemula–mahir, sudah dijalankan 2026-07-04 dengan dedup slug+nama) |
 | 17 | `017-program-intensity.sql` | Kolom intensitas `target_intensity_low/high` (%1RM) + `target_rir_low/high` di `program_exercises` |
 | 18 | `018-exercise-overrides.sql` | `exercise_overrides`: penggantian latihan sementara per tanggal (custom/AI) + riwayat |
+| 19 | `019-program-baseline.sql` | `program_exercises.baseline_exercise_id`: simpan gerakan asli untuk "kembalikan ke latihan awal" |
 
 ## After migrating: backfill embeddings
 
