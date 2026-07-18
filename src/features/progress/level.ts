@@ -5,9 +5,12 @@ export type LevelTarget = {
   next: ExperienceLevel | null;
   /**
    * Minggu KONSISTEN (≥2 sesi/minggu) yang dibutuhkan untuk naik level.
-   * Standar kepelatihan (NSCA/ACSM): pemula → menengah ±6 bulan latihan
-   * konsisten; menengah → mahir ±2 tahun. Ini soal jam terbang tubuh
-   * beradaptasi — TIDAK terkait target deadline yang dipilih di onboarding.
+   * Mengikuti tabel training status NSCA (Essentials of Strength Training &
+   * Conditioning): pemula <±3 bulan usia latihan, menengah ±3 bulan–1 tahun,
+   * mahir >1 tahun — jadi pemula → menengah ±12 minggu konsisten, menengah →
+   * mahir ±48 minggu lagi (total >1 tahun sejak mulai). Ini soal jam terbang
+   * tubuh beradaptasi — TIDAK terkait target deadline yang dipilih di
+   * onboarding.
    */
   weeksRequired: number;
   /** Kriteria kualitatif yang harus dipenuhi, untuk ditampilkan sebagai poin. */
@@ -18,9 +21,9 @@ const TARGETS: Record<ExperienceLevel, LevelTarget> = {
   pemula: {
     current: "pemula",
     next: "menengah",
-    weeksRequired: 24, // ±6 bulan
+    weeksRequired: 12, // ±3 bulan
     criteria: [
-      "24 minggu latihan konsisten (minimal 2 sesi per minggu)",
+      "12 minggu latihan konsisten (minimal 2 sesi per minggu)",
       "Kuasai teknik gerakan dasar: squat, hinge, push, pull",
       "Beban naik bertahap tiap 1-2 minggu (progressive overload masih linear)",
     ],
@@ -28,9 +31,9 @@ const TARGETS: Record<ExperienceLevel, LevelTarget> = {
   menengah: {
     current: "menengah",
     next: "mahir",
-    weeksRequired: 96, // ±2 tahun
+    weeksRequired: 48, // ±1 tahun di level menengah
     criteria: [
-      "±2 tahun (96 minggu) latihan konsisten sejak mulai",
+      "±1 tahun (48 minggu) latihan konsisten di level menengah",
       "Progres beban sudah per bulan, bukan per sesi — butuh program terperiodisasi",
       "Mampu mengatur volume, intensitas, deload, dan recovery sendiri",
     ],

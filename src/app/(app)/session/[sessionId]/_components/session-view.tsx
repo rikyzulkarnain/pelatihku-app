@@ -423,7 +423,9 @@ export default function SessionView({ data }: { data: SessionData }) {
     let dc = 0;
     let vol = 0;
     for (const ex of data.exercises) {
+      // Gerakan baru hasil swap/generate: state belum ter-merge di render pertama.
       const s = state[ex.exercise.id];
+      if (!s) continue;
       for (const slot of s.sets) {
         if (!slot.done) continue;
         dc += 1;
