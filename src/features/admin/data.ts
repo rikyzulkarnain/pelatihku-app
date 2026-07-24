@@ -18,6 +18,19 @@ export type AdminActivity = {
   at: string; // ISO
 };
 
+export type FeedbackStatus = "baru" | "diproses" | "selesai";
+
+export type AdminFeedbackRow = {
+  id: string;
+  type: "saran" | "bug" | "lainnya";
+  message: string;
+  page: string | null;
+  status: FeedbackStatus;
+  createdAt: string;
+  userName: string;
+  userEmail: string;
+};
+
 export type AdminUserRow = {
   id: string;
   name: string;
@@ -181,6 +194,42 @@ export async function getAdminDashboard(): Promise<{
     .slice(0, 30);
 
   return { stats, activity };
+}
+
+export async function getAdminFeedback(): Promise<AdminFeedbackRow[]> {
+  const admin = createAdminClient();
+
+  const [fbRes, usersRes, profilesRes] = await Promise.all([
+    admin
+      .from("feedback")
+      .select("id, user_id, type, message, page, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(500),
+    admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    admin.from("profiles").select("id, name"),
+  ]);
+
+  const emailById = new Map(
+    (usersRes.data?.users ?? []).map((u) => [u.id, u.email ?? "-"]),
+  );
+  const nameById = new Map(
+    (profilesRes.data ?? []).map((p) => [p.id as string, (p.name as string | null) ?? ""]),
+  );
+
+  return (fbRes.data ?? []).map((f) => {
+    const email = emailById.get(f.user_id as string) ?? "-";
+    const name = nameById.get(f.user_id as string) || email.split("@")[0] || "Pengguna";
+    return {
+      id: f.id as string,
+      type: f.type as AdminFeedbackRow["type"],
+      message: f.message as string,
+      page: (f.page as string | null) ?? null,
+      status: f.status as FeedbackStatus,
+      createdAt: f.created_at as string,
+      userName: name,
+      userEmail: email,
+    };
+  });
 }
 
 export async function getAdminUsers(): Promise<AdminUserRow[]> {

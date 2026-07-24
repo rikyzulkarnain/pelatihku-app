@@ -1,6 +1,7 @@
 "use client";
 
 import InstallButton from "@/components/common/install-button";
+import FeedbackCard from "./feedback-card";
 import { signOutAction } from "@/features/auth/action";
 import {
   logBodyweight,
@@ -191,6 +192,9 @@ export default function ProgressView({ data }: { data: ProgressData }) {
           ))}
         </div>
       </div>
+
+      {/* saran & laporan bug */}
+      <FeedbackCard />
 
       {/* key stats */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>

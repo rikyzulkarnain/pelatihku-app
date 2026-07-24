@@ -64,6 +64,7 @@ export default async function AdminLayout({
           <nav style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <NavLink href="/admin" label="Dashboard" />
             <NavLink href="/admin/users" label="Pengguna" />
+            <NavLink href="/admin/feedback" label="Masukan" />
             <NavLink href="/home" label="← Aplikasi" muted />
           </nav>
         </div>

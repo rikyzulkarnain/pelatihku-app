@@ -23,6 +23,7 @@ editor (or `supabase db` CLI). Each file is idempotent enough to run once on a c
 | 17 | `017-program-intensity.sql` | Kolom intensitas `target_intensity_low/high` (%1RM) + `target_rir_low/high` di `program_exercises` |
 | 18 | `018-exercise-overrides.sql` | `exercise_overrides`: penggantian latihan sementara per tanggal (custom/AI) + riwayat |
 | 19 | `019-program-baseline.sql` | `program_exercises.baseline_exercise_id`: simpan gerakan asli untuk "kembalikan ke latihan awal" |
+| 20 | `020-feedback.sql` | `feedback`: saran & laporan bug pengguna (RLS: tulis/baca milik sendiri; admin baca via service-role) |
 
 ## After migrating: backfill embeddings
 
