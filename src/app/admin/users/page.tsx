@@ -1,7 +1,10 @@
 import { GOAL_LABEL, LEVEL_LABEL } from "@/constants/labels";
 import { getAdminUsers } from "@/features/admin/data";
-import { format } from "date-fns";
-import { id as localeId } from "date-fns/locale";
+import {
+  formatDateWIB,
+  formatDateTimeWIB,
+  formatShortDateTimeWIB,
+} from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -99,15 +102,13 @@ export default async function AdminUsersPage() {
               </div>
 
               <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--ink2)" }}>
-                {u.lastWorkoutAt
-                  ? format(new Date(u.lastWorkoutAt), "d MMM yyyy, HH:mm", { locale: localeId })
-                  : "—"}
+                {u.lastWorkoutAt ? formatDateTimeWIB(u.lastWorkoutAt) : "—"}
               </div>
               <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--dim)" }}>
-                {format(new Date(u.createdAt), "d MMM yyyy", { locale: localeId })}
+                {formatDateWIB(u.createdAt)}
                 {u.lastSignInAt && (
                   <div style={{ color: "var(--faint)", marginTop: 2 }}>
-                    login {format(new Date(u.lastSignInAt), "d MMM, HH:mm", { locale: localeId })}
+                    login {formatShortDateTimeWIB(u.lastSignInAt)}
                   </div>
                 )}
               </div>

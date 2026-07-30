@@ -1,7 +1,6 @@
 import { getAdminDashboard } from "@/features/admin/data";
 import { formatNumber } from "@/lib/utils";
-import { format } from "date-fns";
-import { id as localeId } from "date-fns/locale";
+import { formatShortDateTimeWIB } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -118,7 +117,7 @@ export default async function AdminDashboardPage() {
                     textAlign: "right",
                   }}
                 >
-                  {format(new Date(a.at), "d MMM, HH:mm", { locale: localeId })}
+                  {formatShortDateTimeWIB(a.at)}
                 </div>
               </div>
             ))}

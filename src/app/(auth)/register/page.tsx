@@ -6,6 +6,7 @@ import PkInput from "@/components/common/pk-input";
 import ScreenHeader from "@/components/common/screen-header";
 import SocialAuth from "@/components/common/social-auth";
 import { registerAction } from "@/features/auth/action";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -104,7 +105,10 @@ export default function RegisterPage() {
           >
             Dengan mendaftar, kamu menyetujui{" "}
             <span style={{ color: "var(--acc)" }}>Ketentuan</span> &{" "}
-            <span style={{ color: "var(--acc)" }}>Kebijakan Privasi</span>.
+            <Link href="/privacy" style={{ color: "var(--acc)" }}>
+              Kebijakan Privasi
+            </Link>
+            .
           </p>
         </div>
 

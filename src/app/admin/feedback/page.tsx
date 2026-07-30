@@ -1,6 +1,5 @@
 import { getAdminFeedback } from "@/features/admin/data";
-import { format } from "date-fns";
-import { id as localeId } from "date-fns/locale";
+import { formatDateTimeWIB } from "@/lib/datetime";
 import StatusControl from "./_components/status-control";
 
 export const dynamic = "force-dynamic";
@@ -102,7 +101,7 @@ export default async function AdminFeedbackPage() {
                     </span>
                   )}
                   <span style={{ marginLeft: "auto", font: "600 11.5px var(--font-jakarta), sans-serif", color: "var(--faint)" }}>
-                    {format(new Date(f.createdAt), "d MMM yyyy · HH:mm", { locale: localeId })}
+                    {formatDateTimeWIB(f.createdAt, " · ")}
                   </span>
                 </div>
 
