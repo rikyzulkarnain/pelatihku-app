@@ -8,6 +8,11 @@ const PUBLIC_ROUTES = [
   "/register",
   "/auth/callback",
   "/privacy",
+  // Endpoint mesin: dipanggil Meta & bot Hermes, bukan browser pengguna. Punya
+  // autentikasi sendiri (HMAC signature / HERMES_API_KEY), bukan sesi Supabase.
+  "/api/instagram/webhook",
+  "/api/instagram/events",
+  "/api/instagram/reply",
 ];
 
 export const supabaseProxy = async (request: NextRequest) => {
