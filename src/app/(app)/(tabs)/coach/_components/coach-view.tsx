@@ -1,12 +1,14 @@
 "use client";
 
 import {
+  AGENT_TOOL_LABELS,
   COACH_MODELS,
   COACH_MODEL_LABELS,
   CoachModel,
   DEFAULT_COACH_MODEL,
   SUGGESTED_PROMPTS,
 } from "@/constants/coach-constant";
+import { sendAgentMessage } from "@/features/agent/action";
 import { transcribeAudio } from "@/features/ai/transcribe";
 import {
   CoachInit,
@@ -15,9 +17,7 @@ import {
   deleteConversation,
   getConversation,
   listConversations,
-  saveTurn,
 } from "@/features/coach/action";
-import { handleCoachStreaming } from "@/features/coach/chat";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { Conversation } from "@/types/ai";
 import { format } from "date-fns";
@@ -129,45 +129,33 @@ export default function CoachView({ init }: { init: CoachInit }) {
     const clean = text.trim();
     if (!clean || busy) return;
 
+    // Gelembung model kosong = placeholder; indikator "mengetik" di bawah
+    // yang tampil selama agent memilih tool & menjalankannya.
     const userMsg: Conversation = { role: "user", parts: [{ text: clean }] };
-    const history = [...messages, userMsg];
-    const emptyModel: Conversation = {
-      role: "model",
-      parts: thinking ? [{ thought: true, text: "" }, { text: "" }] : [{ text: "" }],
-    };
-    setMessages([...history, emptyModel]);
+    const emptyModel: Conversation = { role: "model", parts: [{ text: "" }] };
+    setMessages([...messages, userMsg, emptyModel]);
     setInput("");
     setBusy(true);
 
-    let answer = "";
-    let thought = "";
-    const render = () =>
+    try {
+      const res = await sendAgentMessage({
+        conversationId,
+        text: clean,
+        model,
+        thinking,
+      });
+      if (res.error) throw new Error(res.error);
       setMessages((prev) => {
         const next = [...prev];
         next[next.length - 1] = {
           role: "model",
-          parts: thinking
-            ? [{ thought: true, text: thought }, { text: answer }]
-            : [{ text: answer }],
+          tools: res.tools,
+          parts: res.thought
+            ? [{ thought: true, text: res.thought }, { text: res.text ?? "" }]
+            : [{ text: res.text ?? "" }],
         };
         return next;
       });
-
-    try {
-      const stream = await handleCoachStreaming(history, { model, thinking });
-      for await (const chunk of stream) {
-        if (chunk.startsWith("[thought]")) {
-          thought += chunk.slice("[thought]".length);
-        } else {
-          answer += chunk;
-        }
-        render();
-      }
-      if (!answer) {
-        answer = "Maaf, aku belum bisa menjawab itu. Coba tanya hal lain seputar latihanmu ya.";
-        render();
-      }
-      await saveTurn(conversationId, clean, answer);
     } catch (e) {
       const msg =
         e instanceof Error ? e.message : "Terjadi kesalahan pada AI Coach.";
@@ -208,7 +196,7 @@ export default function CoachView({ init }: { init: CoachInit }) {
               AI Coach
             </div>
             <div style={{ font: "600 12px var(--font-jakarta), sans-serif", color: "var(--acc)" }}>
-              ● tahu profil & program kamu
+              ● agent · bisa bertindak
             </div>
           </div>
           {/* lihat percakapan sebelumnya */}
@@ -327,7 +315,7 @@ export default function CoachView({ init }: { init: CoachInit }) {
               Halo! Aku coach-mu 👋
             </div>
             <p style={{ font: "500 14px/1.5 var(--font-jakarta), sans-serif", color: "var(--dim)", maxWidth: 260, margin: "0 auto" }}>
-              Tanya soal teknik, ganti gerakan, nutrisi, atau sekadar minta semangat.
+              Tanya teknik, catat makanan, minta ganti gerakan, saran menu, atau laporan progres.
             </p>
           </div>
         )}
@@ -354,6 +342,7 @@ export default function CoachView({ init }: { init: CoachInit }) {
                   m.parts[0].text
                 ) : (
                   <div className="pk-md">
+                    {m.tools?.length ? <ToolBadges tools={m.tools} /> : null}
                     {m.parts.map((part, pi) => {
                       if (!part.text) return null;
                       if (part.thought) return <ThoughtBlock key={pi} text={part.text} />;
@@ -646,6 +635,29 @@ function HistoryPanel({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Tool yang dipilih lead agent — biar kelihatan "siapa" yang menjawab.
+function ToolBadges({ tools }: { tools: string[] }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+      {tools.map((t, i) => (
+        <span
+          key={`${t}-${i}`}
+          style={{
+            padding: "3px 9px",
+            borderRadius: 999,
+            background: "var(--raised)",
+            border: "1px solid var(--line2)",
+            color: "var(--dim)",
+            font: "700 11px var(--font-archivo), sans-serif",
+          }}
+        >
+          {AGENT_TOOL_LABELS[t] ?? t}
+        </span>
+      ))}
     </div>
   );
 }

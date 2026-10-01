@@ -71,9 +71,21 @@ export const ALL_QUOTA_EXHAUSTED_MESSAGE =
   `Kalau semuanya sudah habis, hubungi admin untuk generate token gratis lagi via WhatsApp ${ADMIN_WHATSAPP}.`;
 
 export const SUGGESTED_PROMPTS = [
-  "Lutut sakit saat squat, salah di mana?",
+  "Barusan makan nasi padang + es teh manis",
   "Alat bench penuh, ganti gerakan apa?",
   "Protein hari ini kurang, makan apa yang murah?",
+  "Laporan progres 7 hari terakhir",
+  "Lutut sakit saat squat, salah di mana?",
   "Lagi malas banget hari ini 😩",
-  "Kenapa berat badanku belum turun?",
 ];
+
+// Label tool lead agent untuk badge di chat (nama fungsi → label).
+export const AGENT_TOOL_LABELS: Record<string, string> = {
+  answer_question: "💬 Coach",
+  manage_food_log: "🍽️ Catat makan",
+  recommend_meal_plan: "🥗 Saran menu",
+  recommend_exercise_swap: "🔄 Ganti gerakan",
+  apply_exercise_swap: "✅ Pasang pengganti",
+  progress_report: "📊 Laporan progres",
+  chit_chat: "👋 Ngobrol",
+};

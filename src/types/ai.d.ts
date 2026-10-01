@@ -3,6 +3,8 @@ import { CoachPersona } from "./profile";
 export type Conversation = {
   role: string;
   parts: { text: string; thought?: boolean }[];
+  /** Tool yang dipilih lead agent untuk jawaban ini (hanya pesan baru, tidak disimpan). */
+  tools?: string[];
 };
 
 export type ChatMessage = {

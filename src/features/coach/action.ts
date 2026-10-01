@@ -173,31 +173,6 @@ export async function createConversation(): Promise<CoachInit | null> {
   };
 }
 
-export async function saveTurn(
-  conversationId: string,
-  userText: string,
-  modelText: string,
-): Promise<void> {
-  const supabase = await createClient();
-  const user = await getCurrentUser();
-  if (!user) return;
-
-  await supabase.from("chat_messages").insert([
-    {
-      conversation_id: conversationId,
-      user_id: user.id,
-      role: "user",
-      content: userText,
-    },
-    {
-      conversation_id: conversationId,
-      user_id: user.id,
-      role: "model",
-      content: modelText,
-    },
-  ]);
-}
-
 /** Hapus satu percakapan beserta seluruh pesannya (cascade lewat FK). */
 export async function deleteConversation(
   conversationId: string,

@@ -431,6 +431,8 @@ function isQuotaError(error: unknown): boolean {
 export async function recommendExercise(input: {
   programExerciseId: string;
   model?: CoachModel;
+  /** Alasan user minta ganti (mis. "alat penuh", "bahu nyeri") — dari AI Coach. */
+  userReason?: string;
 }): Promise<{ error?: string; summary?: string; recommendations?: AIRecommendation[] }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -517,7 +519,9 @@ Profil user:
 - Cedera/keluhan: ${(fitness?.injuries ?? []).join(", ") || "tidak ada"}
 
 Slot yang akan diganti:
-- Gerakan asli: ${slot.original.name} (${slot.original.slug}), kategori: ${slot.original.movement_pattern}
+- Gerakan asli: ${slot.original.name} (${slot.original.slug}), kategori: ${slot.original.movement_pattern}${
+    input.userReason ? `\n- Alasan user minta ganti: ${input.userReason}` : ""
+  }
 
 Track record sesi selesai terakhir:
 ${sessionLines || "- belum ada sesi selesai"}
@@ -531,6 +535,7 @@ ${candidateLines}
 Aturan:
 - Pilih berdasarkan track record: kalau gerakan asli sudah sering/stagnan → beri variasi baru; kalau ada gerakan kandidat yang belum pernah dicoba dan levelnya cocok → pertimbangkan; kalau user sering skip kategori ini → pilih yang paling sederhana.
 - Jangan merekomendasikan gerakan level jauh di atas kemampuan user.
+- Kalau ada alasan dari user, WAJIB dihormati (mis. alat penuh → pilih alat lain; nyeri → pilih yang paling ramah sendi).
 - reason singkat, spesifik ke data user (bukan generik), Bahasa Indonesia.`;
 
   const ai = createAI();
